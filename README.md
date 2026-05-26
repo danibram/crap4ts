@@ -220,6 +220,19 @@ crap4ts src/ --baseline crap-main.json \
 
 `pr-comment` emits a sticky `<!-- crap4ts-report -->` marker on the first line. Wire your PR-comment workflow to find that marker and update the existing comment instead of posting a new one each run. The comment body collapses improvements and existing hot-spots into `<details>` blocks so the "what got worse" table stays front-and-center.
 
+### Live examples
+
+The repo runs the baseline workflow on its own PRs via [`.github/workflows/crap-pr-comment.yml`](./.github/workflows/crap-pr-comment.yml). Four `Demo - *` PRs sit open against `main` so you can see exactly what the bot posts in each scenario:
+
+| PR | Scenario | What the comment shows |
+|----|----------|------------------------|
+| [#1 Demo - Clear regression on existing function](https://github.com/danibram/crap4ts/pull/1) | Existing `processOrder` gets more nested branches | `processOrder` flagged as **regressed** with a positive Δ; `--fail-regression` would exit 1 |
+| [#2 Demo - New high-CRAP function added](https://github.com/danibram/crap4ts/pull/2) | New `validateInvoice` ships without tests | `validateInvoice` flagged as **NEW**; legacy `processOrder` stays out of the way |
+| [#3 Demo - Refactor that improves CRAP](https://github.com/danibram/crap4ts/pull/3) | `processOrder` split into discount + tier helpers | `processOrder` reported as **improved** with a large negative Δ; verdict is ✅ No regressions |
+| [#4 Demo - Pure move/rename detection](https://github.com/danibram/crap4ts/pull/4) | `git mv` of `examples/demo.ts` to a sub-directory | 1 row in the **Moved / renamed** `<details>`, zero new/removed/regressed |
+
+Each PR is a draft — they exist for the bot to comment on, not for merging. Click the "Files changed" tab to see the seed diff, and scroll the conversation to see the sticky `crap4ts-report` comment kept up-to-date with the latest run.
+
 ## CI integration
 
 ### GitHub Actions
