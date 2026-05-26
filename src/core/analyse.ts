@@ -7,6 +7,7 @@ import { loadCoverage } from '../coverage/index.js';
 import { cyclomaticComplexity } from './complexity.js';
 import { crap } from './crap.js';
 import { extractFunctions } from './functions.js';
+import { loadGitignoreGlobs } from './gitignore.js';
 import type {
   AnalyseOptions,
   AnalyseResult,
@@ -37,7 +38,16 @@ const DEFAULT_IGNORE_GLOBS = [
 
 export async function analyse(options: AnalyseOptions): Promise<AnalyseResult> {
   const includePaths = resolveInputPaths(options.paths);
-  const ignoreGlobs = [...DEFAULT_IGNORE_GLOBS, ...(options.ignore ?? [])];
+  // Pull patterns from the nearest .gitignore so generated dirs the user
+  // has already excluded from git get the same treatment by default.
+  // Walked from the first scan path because that's the most natural anchor
+  // when paths come from multiple workspace packages.
+  const gitignoreGlobs = loadGitignoreGlobs(includePaths[0] ?? process.cwd());
+  const ignoreGlobs = [
+    ...DEFAULT_IGNORE_GLOBS,
+    ...gitignoreGlobs,
+    ...(options.ignore ?? []),
+  ];
   const isIgnored = makeGlobMatcher(ignoreGlobs);
 
   const filePaths = discoverSourceFiles(includePaths, isIgnored);

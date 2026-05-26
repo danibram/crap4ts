@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import type { CoverageFormat } from '../core/types.js';
+import { PathIndex } from './pathIndex.js';
 import type { CoverageProvider, RangeCoverage } from './provider.js';
 
 type StatementLoc = {
@@ -24,30 +25,31 @@ export function loadJsonCoverage(
   const raw = readFileSync(absFile, 'utf8');
   const parsed = JSON.parse(raw) as CoverageJson;
 
-  // Normalise keys to resolved absolute paths so we can match what ts-morph
-  // gives us. The `path` property inside each record is authoritative when
-  // present; otherwise we fall back to the object key.
-  const normalised = new Map<string, FileRecord>();
+  // Index entries by their reported path verbatim. PathIndex handles
+  // absolute-vs-relative routing internally; we don't `resolve()` here
+  // because that would silently re-root a sub-package's relative paths
+  // against this process's cwd — exactly the bug v0.4 fixes.
+  const index = new PathIndex<FileRecord>();
   for (const [key, record] of Object.entries(parsed)) {
     const path = record.path ?? key;
-    normalised.set(resolve(path), record);
+    index.set(path, record);
   }
 
   return {
     source: absFile,
     format,
     getRangeCoverage: (filePath, startLine, endLine) =>
-      rangeCoverage(normalised, filePath, startLine, endLine),
+      rangeCoverage(index, filePath, startLine, endLine),
   };
 }
 
 function rangeCoverage(
-  files: Map<string, FileRecord>,
+  index: PathIndex<FileRecord>,
   filePath: string,
   startLine: number,
   endLine: number,
 ): RangeCoverage | undefined {
-  const record = files.get(resolve(filePath));
+  const record = index.get(filePath);
   if (!record) return undefined;
 
   let total = 0;

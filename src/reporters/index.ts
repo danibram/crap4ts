@@ -3,6 +3,7 @@ import { renderGithub } from './github.js';
 import { renderJson } from './json.js';
 import { renderMarkdown } from './markdown.js';
 import { renderPrComment } from './prComment.js';
+import { renderSarif } from './sarif.js';
 import { renderTable } from './table.js';
 
 export type ReporterContext = {
@@ -21,6 +22,11 @@ export type ReporterContext = {
    * baselines in multiple locations.
    */
   baselineSource?: string;
+  /**
+   * crap4ts's own package version. Embedded in the SARIF envelope so
+   * Code Scanning can show which tool version produced the result.
+   */
+  toolVersion?: string;
 };
 
 export function render(
@@ -37,6 +43,8 @@ export function render(
       return renderGithub(result, ctx);
     case 'pr-comment':
       return renderPrComment(result, ctx);
+    case 'sarif':
+      return renderSarif(result, ctx);
     case 'table':
       return renderTable(result, ctx);
   }

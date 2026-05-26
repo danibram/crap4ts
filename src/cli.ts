@@ -42,7 +42,7 @@ Coverage:
 
 Output:
   -r, --reporter <name>       table | json | markdown | github | pr-comment
-                              (default: table)
+                              | sarif (default: table)
       --summary               Only print aggregate stats (no per-function table)
   -o, --output <file>         Write to file instead of stdout
 
@@ -181,6 +181,7 @@ export async function run(argv: string[]): Promise<number> {
     failOn: config.failOn,
     top: config.top,
     summary: config.summary,
+    toolVersion: readVersion(),
   };
   if (diff) ctx.diff = diff;
   if (baselineSource) ctx.baselineSource = baselineSource;
@@ -349,12 +350,13 @@ function expectReporter(raw: string): ReporterName {
     raw === 'json' ||
     raw === 'markdown' ||
     raw === 'github' ||
-    raw === 'pr-comment'
+    raw === 'pr-comment' ||
+    raw === 'sarif'
   ) {
     return raw;
   }
   throw new Error(
-    `--reporter expects one of: table | json | markdown | github | pr-comment (got "${raw}")`,
+    `--reporter expects one of: table | json | markdown | github | pr-comment | sarif (got "${raw}")`,
   );
 }
 

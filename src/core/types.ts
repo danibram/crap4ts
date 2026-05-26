@@ -5,7 +5,8 @@ export type ReporterName =
   | 'json'
   | 'markdown'
   | 'github'
-  | 'pr-comment';
+  | 'pr-comment'
+  | 'sarif';
 
 export type MissingPolicy = 'pessimistic' | 'optimistic' | 'skip';
 

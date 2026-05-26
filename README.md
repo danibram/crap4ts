@@ -71,6 +71,7 @@ Status icons: `✗` exceeds `--fail-on`, `▲` exceeds `--threshold`, `✓` clea
 | `markdown`   | PR body / GitHub issue (GFM table)                |
 | `github`     | `::warning::` / `::error::` annotations for PRs   |
 | `pr-comment` | Opinionated PR-bot comment with sticky marker     |
+| `sarif`      | SARIF 2.1.0 → GitHub Code Scanning / VS Code      |
 
 ## Configuration
 
@@ -127,7 +128,7 @@ Status icons: `✗` exceeds `--fail-on`, `▲` exceeds `--threshold`, `✓` clea
 
 | Flag                          | Default | Description                                                |
 |-------------------------------|---------|------------------------------------------------------------|
-| `-r, --reporter <name>`       | `table` | `table` \| `json` \| `markdown` \| `github` \| `pr-comment` |
+| `-r, --reporter <name>`       | `table` | `table` \| `json` \| `markdown` \| `github` \| `pr-comment` \| `sarif` |
 | `--summary`                   | off     | Only print aggregate stats + worst offender (no table).    |
 | `-o, --output <file>`         | _none_  | Write to file instead of stdout.                           |
 
@@ -232,6 +233,61 @@ The repo runs the baseline workflow on its own PRs via [`.github/workflows/crap-
 | [#4 Demo - Pure move/rename detection](https://github.com/danibram/crap4ts/pull/4) | `git mv` of `examples/demo.ts` to a sub-directory | 1 row in the **Moved / renamed** `<details>`, zero new/removed/regressed |
 
 Each PR is a draft — they exist for the bot to comment on, not for merging. Click the "Files changed" tab to see the seed diff, and scroll the conversation to see the sticky `crap4ts-report` comment kept up-to-date with the latest run.
+
+## Monorepos
+
+Coverage tools emit file paths in four shapes depending on where they ran:
+
+1. Absolute: `/home/alice/proj/src/foo.ts`
+2. Relative to the workspace root: `src/foo.ts`
+3. Relative to a sub-package (when the coverage tool ran in `packages/foo/`): `src/bar.ts`
+4. With `./` or `../` prefixes
+
+Earlier versions of `crap4ts` ran `path.resolve()` on every reported path, which silently re-rooted relative paths against the current `process.cwd()`. That worked fine at the repo root but failed silently in monorepos — every function in the sub-package showed up as 0% covered.
+
+From v0.4 the matcher uses a two-level index:
+
+1. Absolute report paths go into a hash map keyed by the absolute path. Exact hits resolve in `O(1)`.
+2. Relative report paths are matched by **component-suffix** against the query's components. `src/foo.ts` matches `/repo/packages/foo/src/foo.ts`; `foo/bar.ts` does **not** match `/proj/oofoo/bar.ts` because the match boundary is the path-separator, not the byte boundary.
+
+If multiple relative entries match, the most-specific (longest matching suffix) wins. Cross-machine absolute paths (CI report run on `/home/runner/work/...` queried locally from `/Users/dani/...`) intentionally do not match — silently merging different absolute roots would mask real bugs. A future `--path-prefix` flag will let you remap when you need to.
+
+`crap4ts` also reads the nearest `.gitignore` and adds its patterns to the walker, so generated directories (`dist-temp/`, `build-out/`, etc.) get skipped automatically without you having to repeat them in `crap.config.json`. Negation patterns (`!foo`) and nested `.gitignore` files deeper in the tree are not yet honoured — open an issue if you hit them.
+
+## GitHub Code Scanning (SARIF)
+
+`crap4ts --reporter sarif` emits a [SARIF 2.1.0](https://docs.oasis-open.org/sarif/sarif/v2.1.0/csprd02/sarif-v2.1.0-csprd02.html) envelope that GitHub Code Scanning ingests via the official `upload-sarif` action. High-CRAP functions then appear:
+
+- Inline in the diff of every PR, as warning / error annotations next to the offending line range
+- In the **Security → Code scanning** tab as persistent findings, with `partialFingerprints` so re-runs don't duplicate them
+- In editors that read SARIF (VS Code via the SARIF Viewer extension, IntelliJ, etc.)
+
+Two rules are emitted:
+
+| Rule ID              | Level   | Triggered when            |
+|----------------------|---------|---------------------------|
+| `crap4ts/threshold`  | warning | `crap > --threshold` (30) |
+| `crap4ts/fail-on`    | error   | `crap > --fail-on`        |
+
+Minimal workflow:
+
+```yaml
+- name: Run crap4ts (SARIF)
+  run: bunx @danibram/crap4ts src/ \
+    --coverage coverage/coverage-final.json \
+    --threshold 30 \
+    --fail-on 100 \
+    --reporter sarif \
+    --output crap.sarif
+
+- name: Upload to Code Scanning
+  uses: github/codeql-action/upload-sarif@v3
+  with:
+    sarif_file: crap.sarif
+    category: crap4ts
+```
+
+`category: crap4ts` keeps these results distinct from other Code Scanning sources (CodeQL, ESLint SARIF, etc.) so each tool gets its own column in the dashboard.
 
 ## CI integration
 

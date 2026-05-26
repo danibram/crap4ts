@@ -1,5 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
+import { PathIndex } from './pathIndex.js';
 import type { CoverageProvider, RangeCoverage } from './provider.js';
 
 type LcovFile = {
@@ -11,14 +12,16 @@ export function loadLcovCoverage(file: string): CoverageProvider {
   const absFile = resolve(file);
   const raw = readFileSync(absFile, 'utf8');
 
-  const files = new Map<string, LcovFile>();
+  const index = new PathIndex<LcovFile>();
   let current: { path: string; data: LcovFile } | undefined;
 
   for (const line of raw.split(/\r?\n/)) {
     if (line.startsWith('SF:')) {
-      const path = resolve(line.slice(3).trim());
+      // Store the reported path verbatim — PathIndex routes absolute vs
+      // relative; resolving here would re-root subpackage paths against cwd.
+      const path = line.slice(3).trim();
       current = { path, data: { lineHits: new Map() } };
-      files.set(path, current.data);
+      index.set(path, current.data);
       continue;
     }
     if (!current) continue;
@@ -45,17 +48,17 @@ export function loadLcovCoverage(file: string): CoverageProvider {
     source: absFile,
     format: 'lcov',
     getRangeCoverage: (filePath, startLine, endLine) =>
-      rangeCoverage(files, filePath, startLine, endLine),
+      rangeCoverage(index, filePath, startLine, endLine),
   };
 }
 
 function rangeCoverage(
-  files: Map<string, LcovFile>,
+  index: PathIndex<LcovFile>,
   filePath: string,
   startLine: number,
   endLine: number,
 ): RangeCoverage | undefined {
-  const record = files.get(resolve(filePath));
+  const record = index.get(filePath);
   if (!record) return undefined;
 
   let total = 0;
