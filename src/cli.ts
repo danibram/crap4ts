@@ -2,17 +2,13 @@ import { readFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
+import { type ResolvedConfig, loadFileConfig, mergeConfig } from './config.js';
 import { analyse } from './core/analyse.js';
 import type {
   AnalyseOptions,
   CoverageFormat,
   ReporterName,
 } from './core/types.js';
-import {
-  loadFileConfig,
-  mergeConfig,
-  type ResolvedConfig,
-} from './config.js';
 import { render } from './reporters/index.js';
 
 const HELP = `crap4ts — C.R.A.P. (Change Risk Analysis & Predictions) index for TypeScript.
@@ -171,7 +167,12 @@ function expectNumber(flag: string, raw: string): number {
 }
 
 function expectReporter(raw: string): ReporterName {
-  if (raw === 'table' || raw === 'json' || raw === 'markdown' || raw === 'github') {
+  if (
+    raw === 'table' ||
+    raw === 'json' ||
+    raw === 'markdown' ||
+    raw === 'github'
+  ) {
     return raw;
   }
   throw new Error(
@@ -195,7 +196,9 @@ function readVersion(): string {
       '..',
       'package.json',
     );
-    const pkg = JSON.parse(readFileSync(pkgPath, 'utf8')) as { version: string };
+    const pkg = JSON.parse(readFileSync(pkgPath, 'utf8')) as {
+      version: string;
+    };
     return pkg.version;
   } catch {
     return '0.0.0';

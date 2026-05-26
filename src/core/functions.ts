@@ -64,10 +64,7 @@ function hasBody(fn: FunctionLike): boolean {
   // in source (overload signatures are SignatureDeclarations, a different
   // kind, so we never see them here). FunctionDeclaration / MethodDeclaration
   // can be ambient — those return undefined from getBody().
-  if (
-    Node.isFunctionDeclaration(fn) ||
-    Node.isMethodDeclaration(fn)
-  ) {
+  if (Node.isFunctionDeclaration(fn) || Node.isMethodDeclaration(fn)) {
     return fn.getBody() !== undefined;
   }
   return true;

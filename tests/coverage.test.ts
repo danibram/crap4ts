@@ -112,7 +112,10 @@ describe('loadCoverage — LCOV', () => {
 
     expect(cov.getRangeCoverage(file, 1, 20)).toEqual({ total: 5, covered: 2 });
     expect(cov.getRangeCoverage(file, 1, 3)).toEqual({ total: 3, covered: 2 });
-    expect(cov.getRangeCoverage(file, 10, 11)).toEqual({ total: 2, covered: 0 });
+    expect(cov.getRangeCoverage(file, 10, 11)).toEqual({
+      total: 2,
+      covered: 0,
+    });
   });
 
   it('takes max hits when a line appears multiple times', async () => {
