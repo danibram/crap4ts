@@ -15,18 +15,30 @@ export interface Order {
   customerTier?: 'standard' | 'gold' | 'platinum';
 }
 
+function summerDiscount(total: number): number {
+  if (total > 100 && total < 500) return total * 0.9;
+  if (total >= 500) return total * 0.85;
+  return total;
+}
+
+function winterDiscount(total: number): number {
+  return total > 50 ? total * 0.95 : total;
+}
+
+function applyDiscountCode(total: number, code: string | undefined): number {
+  if (code === 'SUMMER') return summerDiscount(total);
+  if (code === 'WINTER') return winterDiscount(total);
+  return total;
+}
+
+function applyTierBonus(total: number, tier: Order['customerTier']): number {
+  return tier === 'platinum' ? total * 0.92 : total;
+}
+
 export function processOrder(order: Order): number {
-  if (order.items.length > 0 && order.total > 0) {
-    if (order.discountCode === 'SUMMER') {
-      if (order.total > 100 && order.total < 500) return order.total * 0.9;
-      if (order.total >= 500) return order.total * 0.85;
-    } else if (order.discountCode === 'WINTER') {
-      if (order.total > 50) return order.total * 0.95;
-    }
-    if (order.customerTier === 'platinum') return order.total * 0.92;
-    return order.total;
-  }
-  return 0;
+  if (order.items.length === 0 || order.total <= 0) return 0;
+  const discounted = applyDiscountCode(order.total, order.discountCode);
+  return applyTierBonus(discounted, order.customerTier);
 }
 
 export function shippingFee(weight: number): number {
