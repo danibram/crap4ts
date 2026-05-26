@@ -1,6 +1,6 @@
 {
   "name": "@danibram/crap4ts",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "description": "C.R.A.P. (Change Risk Analysis & Predictions) index for TypeScript / JavaScript codebases. Combines cyclomatic complexity with test coverage to surface risky-to-change code.",
   "keywords": [
     "crap",
