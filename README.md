@@ -231,6 +231,7 @@ The repo runs the baseline workflow on its own PRs via [`.github/workflows/crap-
 | [#2 Demo - New high-CRAP function added](https://github.com/danibram/crap4ts/pull/2) | New `validateInvoice` ships without tests | `validateInvoice` flagged as **NEW**; legacy `processOrder` stays out of the way |
 | [#3 Demo - Refactor that improves CRAP](https://github.com/danibram/crap4ts/pull/3) | `processOrder` split into discount + tier helpers | `processOrder` reported as **improved** with a large negative Δ; verdict is ✅ No regressions |
 | [#4 Demo - Pure move/rename detection](https://github.com/danibram/crap4ts/pull/4) | `git mv` of `examples/demo.ts` to a sub-directory | 1 row in the **Moved / renamed** `<details>`, zero new/removed/regressed |
+| [#7 Demo - SARIF upload to Code Scanning](https://github.com/danibram/crap4ts/pull/7) | New `recurringBilling` with CRAP > 100 | Sticky bot comment **plus** inline error annotations on the PR diff, plus a finding in **Security → Code scanning** with `category: crap4ts` |
 
 Each PR is a draft — they exist for the bot to comment on, not for merging. Click the "Files changed" tab to see the seed diff, and scroll the conversation to see the sticky `crap4ts-report` comment kept up-to-date with the latest run.
 
