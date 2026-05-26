@@ -1,0 +1,72 @@
+{
+  "name": "@danibram/crap4ts",
+  "version": "0.0.0",
+  "description": "C.R.A.P. (Change Risk Analysis & Predictions) index for TypeScript / JavaScript codebases. Combines cyclomatic complexity with test coverage to surface risky-to-change code.",
+  "keywords": [
+    "crap",
+    "crap4j",
+    "complexity",
+    "cyclomatic",
+    "coverage",
+    "metrics",
+    "code-quality",
+    "typescript",
+    "static-analysis",
+    "lint",
+    "ci"
+  ],
+  "author": "Daniel Biedma <danielbiedma@seedtag.com> (https://github.com/danibram)",
+  "license": "MIT",
+  "homepage": "https://github.com/danibram/crap4ts#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/danibram/crap4ts.git"
+  },
+  "bugs": {
+    "url": "https://github.com/danibram/crap4ts/issues"
+  },
+  "type": "module",
+  "bin": {
+    "crap4ts": "./dist/cli.js"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE",
+    "CHANGELOG.md"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "build": "tsup",
+    "dev": "tsup --watch",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:cov": "vitest run --coverage",
+    "lint": "biome check src tests",
+    "lint:fix": "biome check --write src tests",
+    "typecheck": "tsc --noEmit",
+    "prepublishOnly": "bun run typecheck && bun run lint && bun run test && bun run build",
+    "release": "changeset publish"
+  },
+  "dependencies": {
+    "ts-morph": "^24.0.0"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "1.8.3",
+    "@changesets/cli": "^2.27.11",
+    "@types/node": "^22.10.0",
+    "@vitest/coverage-v8": "^2.1.0",
+    "tsup": "^8.3.5",
+    "typescript": "^5.7.2",
+    "vitest": "^2.1.0"
+  },
+  "packageManager": "bun@1.3.11"
+}
