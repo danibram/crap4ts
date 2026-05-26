@@ -46,13 +46,15 @@ Scanned 261 files. 910 functions analysed.
 Coverage: v8 (coverage/coverage-final.json)
 Above threshold (CRAP > 30): 133 (14.6%)
 
-  CRAP  COMP  COV%  LOCATION                                FUNCTION
-──────  ────  ────  ──────────────────────────────────────  ───────────────────────
-2070.0    45     0  src/billing/excel-validator.ts:108      validateBillingCostItem
-1406.0    37     0  src/billing/periods-feature.ts:84       getUnifiedPeriodsRows
-1332.0    36     0  src/csv/model-parser.ts:28              createModelRecord
+    CRAP  COMP  COVERAGE          LOCATION                            FUNCTION
+─  ─────  ────  ────────────────  ──────────────────────────────────  ───────────────────────
+▲ 2070.0    45  ░░░░░░░░░░    0%  src/billing/excel-validator.ts:108  validateBillingCostItem
+▲ 1406.0    37  ░░░░░░░░░░    0%  src/billing/periods-feature.ts:84   getUnifiedPeriodsRows
+✓   18.0    18  ██████████  100%  src/config.ts:56                    mergeConfig
  ...
 ```
+
+Status icons: `✗` exceeds `--fail-on`, `▲` exceeds `--threshold`, `✓` clean.
 
 ## Reporters
 
@@ -65,16 +67,20 @@ Above threshold (CRAP > 30): 133 (14.6%)
 
 ## Configuration
 
-`crap4ts` reads `crap.config.json` from the current working directory, or a `crap` section in `package.json`. CLI flags override the config file.
+`crap4ts` reads `crap.config.json` walking up from the current working directory to the nearest git root (or filesystem root). Falls back to a `crap` section in `package.json` (cwd only). CLI flags always override the config file.
 
 ```json
 {
   "include": ["src/**/*.ts"],
   "ignore": ["src/legacy/**", "**/*.gen.ts"],
+  "allow": ["generated/**", "render*"],
   "threshold": 30,
   "failOn": 100,
+  "missing": "pessimistic",
+  "min": 10,
   "reporter": "table",
   "top": 50,
+  "summary": false,
   "coverage": "./coverage/coverage-final.json",
   "coverageFormat": "auto",
   "tsconfig": "./tsconfig.json"
@@ -83,19 +89,46 @@ Above threshold (CRAP > 30): 133 (14.6%)
 
 ### CLI flags
 
-| Flag                          | Default  | Description                                       |
-|-------------------------------|----------|---------------------------------------------------|
-| `-t, --threshold <n>`         | `30`     | Mark functions whose CRAP exceeds this value      |
-| `--fail-on <n>`               | _none_   | Exit code 1 if any function exceeds this value    |
-| `-r, --reporter <name>`       | `table`  | `table` \| `json` \| `markdown` \| `github`       |
-| `--top <n>`                   | `50`     | Limit table/markdown rows                         |
-| `-i, --ignore <glob>`         | _none_   | Glob to exclude (repeatable)                      |
-| `-c, --coverage <file>`       | _none_   | Path to coverage report                           |
-| `--coverage-format <fmt>`     | `auto`   | `auto` \| `v8` \| `istanbul` \| `lcov`            |
-| `--tsconfig <path>`           | _none_   | Path to tsconfig.json (rarely needed)             |
-| `--config <path>`             | _none_   | Path to crap.config.json                          |
-| `-h, --help`                  |          |                                                   |
-| `-v, --version`               |          |                                                   |
+#### Filtering
+
+| Flag                          | Default | Description                                                                                         |
+|-------------------------------|---------|-----------------------------------------------------------------------------------------------------|
+| `-i, --ignore <glob>`         | _none_  | Skip files at walk time (repeatable, **not parsed**).                                              |
+| `--allow <glob>`              | _none_  | Parse the file but hide matching functions. Path glob if it contains `/` or `**`; otherwise matches the function name (`*` doesn't cross `::` or `.`). |
+| `--min <score>`               | _none_  | Hide rows below this score from the report. Does **not** affect `--fail-on`.                       |
+| `--top <n>`                   | `50`    | Show only the N worst offenders.                                                                    |
+
+#### Thresholds
+
+| Flag                          | Default | Description                                                |
+|-------------------------------|---------|------------------------------------------------------------|
+| `-t, --threshold <n>`         | `30`    | Score above which a function is flagged.                   |
+| `--fail-on <n>`               | _none_  | Exit code 1 if any function exceeds this value.            |
+
+#### Coverage
+
+| Flag                          | Default       | Description                                                            |
+|-------------------------------|---------------|------------------------------------------------------------------------|
+| `-c, --coverage <file>`       | _none_        | Path to coverage report.                                               |
+| `--coverage-format <fmt>`     | `auto`        | `auto` \| `v8` \| `istanbul` \| `lcov`                                  |
+| `--missing <policy>`          | `pessimistic` | How to score functions with no coverage data: `pessimistic` (0%), `optimistic` (100% → CRAP = comp), `skip` (drop the row). |
+
+#### Output
+
+| Flag                          | Default | Description                                                |
+|-------------------------------|---------|------------------------------------------------------------|
+| `-r, --reporter <name>`       | `table` | `table` \| `json` \| `markdown` \| `github`                |
+| `--summary`                   | off     | Only print aggregate stats + worst offender (no table).    |
+| `-o, --output <file>`         | _none_  | Write to file instead of stdout.                           |
+
+#### Misc
+
+| Flag                          | Default | Description                                                |
+|-------------------------------|---------|------------------------------------------------------------|
+| `--tsconfig <path>`           | _none_  | Path to tsconfig.json (rarely needed).                     |
+| `--config <path>`             | _none_  | Path to crap.config.json.                                  |
+| `-h, --help`                  |         |                                                            |
+| `-v, --version`               |         |                                                            |
 
 ## Coverage formats
 

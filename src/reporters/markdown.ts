@@ -47,9 +47,7 @@ export function renderMarkdown(
   for (const fn of top) {
     const icon = statusIcon(fn.crap, ctx.threshold, ctx.failOn);
     const location = `\`${relative(cwd, fn.file)}:${fn.startLine}\``;
-    const cov = fn.coverageMissing
-      ? 'n/a'
-      : `${fn.coverage.toFixed(0)}%`;
+    const cov = fn.coverageMissing ? 'n/a' : `${fn.coverage.toFixed(0)}%`;
     lines.push(
       `| ${icon} | ${fn.crap.toFixed(1)} | ${fn.complexity} | ${cov} | ${location} | \`${fn.name}\` |`,
     );

@@ -65,7 +65,9 @@ export function renderTable(
   const padCell = (cell: string, col: number) => {
     const gap = widths[col]! - visibleWidth(cell);
     if (gap <= 0) return cell;
-    return ALIGN_RIGHT.has(col) ? ' '.repeat(gap) + cell : cell + ' '.repeat(gap);
+    return ALIGN_RIGHT.has(col)
+      ? ' '.repeat(gap) + cell
+      : cell + ' '.repeat(gap);
   };
 
   const formatRow = (cells: string[]) =>
@@ -90,7 +92,8 @@ function statusIcon(
 function coverageCell(coverage: number, missing: boolean): string {
   if (missing) return `${'░'.repeat(BAR_WIDTH)}    n/a`;
   const filled = Math.round((coverage / 100) * BAR_WIDTH);
-  const bar = FULL_BLOCK.repeat(filled) + EMPTY_BLOCK.repeat(BAR_WIDTH - filled);
+  const bar =
+    FULL_BLOCK.repeat(filled) + EMPTY_BLOCK.repeat(BAR_WIDTH - filled);
   return `${bar} ${coverage.toFixed(0).padStart(3)}%`;
 }
 
