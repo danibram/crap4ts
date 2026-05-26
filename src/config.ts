@@ -21,6 +21,9 @@ export type ResolvedConfig = {
   coverageFile: string | undefined;
   coverageFormat: CoverageFormat | 'auto';
   tsconfigPath: string | undefined;
+  baseline: string | undefined;
+  failRegression: boolean;
+  epsilon: number;
 };
 
 export type FileConfig = Partial<{
@@ -38,6 +41,9 @@ export type FileConfig = Partial<{
   coverage: string;
   coverageFormat: CoverageFormat | 'auto';
   tsconfig: string;
+  baseline: string;
+  failRegression: boolean;
+  epsilon: number;
 }>;
 
 export const DEFAULT_CONFIG: ResolvedConfig = {
@@ -55,6 +61,9 @@ export const DEFAULT_CONFIG: ResolvedConfig = {
   coverageFile: undefined,
   coverageFormat: 'auto',
   tsconfigPath: undefined,
+  baseline: undefined,
+  failRegression: false,
+  epsilon: 0.01,
 };
 
 export function loadFileConfig(cwd: string, explicit?: string): FileConfig {
@@ -119,6 +128,12 @@ export function mergeConfig(
       file.coverageFormat ??
       DEFAULT_CONFIG.coverageFormat,
     tsconfigPath: cli.tsconfigPath ?? file.tsconfig,
+    baseline: cli.baseline ?? file.baseline,
+    failRegression:
+      cli.failRegression ??
+      file.failRegression ??
+      DEFAULT_CONFIG.failRegression,
+    epsilon: cli.epsilon ?? file.epsilon ?? DEFAULT_CONFIG.epsilon,
   };
 }
 

@@ -1,5 +1,6 @@
 import { relative } from 'node:path';
-import type { AnalyseResult } from '../core/types.js';
+import type { AnalyseResult, DiffEntry } from '../core/types.js';
+import { deltaSign, makeDiffLookup } from './diffLookup.js';
 import type { ReporterContext } from './index.js';
 
 const BAR_WIDTH = 10;
@@ -30,6 +31,14 @@ export function renderTable(
   lines.push(
     `Above threshold (CRAP > ${ctx.threshold}): ${crappy} (${crappyPct.toFixed(1)}%)`,
   );
+  if (ctx.diff && ctx.baselineSource) {
+    const s = ctx.diff.summary;
+    lines.push(
+      `Baseline: ${relative(cwd, ctx.baselineSource)} ` +
+        `(regressed ${s.regressed}, new ${s.new}, moved ${s.moved}, ` +
+        `improved ${s.improved}, removed ${s.removed})`,
+    );
+  }
   if (ctx.summary) {
     if (worst) {
       lines.push(
@@ -46,22 +55,36 @@ export function renderTable(
     return lines.join('\n');
   }
 
-  const headers = ['', 'CRAP', 'COMP', 'COVERAGE', 'LOCATION', 'FUNCTION'];
-  const rows = top.map((fn) => [
-    statusIcon(fn.crap, ctx.threshold, ctx.failOn),
-    fn.crap.toFixed(1),
-    String(fn.complexity),
-    coverageCell(fn.coverage, fn.coverageMissing),
-    `${relative(cwd, fn.file)}:${fn.startLine}`,
-    fn.name,
-  ]);
+  const lookup = ctx.diff ? makeDiffLookup(ctx.diff) : undefined;
+  const showDelta = lookup !== undefined;
+
+  const headers = showDelta
+    ? ['', 'CRAP', 'Δ', 'COMP', 'COVERAGE', 'LOCATION', 'FUNCTION']
+    : ['', 'CRAP', 'COMP', 'COVERAGE', 'LOCATION', 'FUNCTION'];
+
+  const rows = top.map((fn) => {
+    const entry = lookup?.(fn);
+    const base = [
+      statusIcon(fn.crap, ctx.threshold, ctx.failOn, entry),
+      fn.crap.toFixed(1),
+    ];
+    const tail = [
+      String(fn.complexity),
+      coverageCell(fn.coverage, fn.coverageMissing),
+      `${relative(cwd, fn.file)}:${fn.startLine}`,
+      fn.name,
+    ];
+    if (showDelta) return [...base, deltaCell(entry), ...tail];
+    return [...base, ...tail];
+  });
 
   // Visible width — block characters render as one column in monospace fonts.
   const widths = headers.map((h, i) =>
     Math.max(visibleWidth(h), ...rows.map((r) => visibleWidth(r[i]!))),
   );
 
-  const ALIGN_RIGHT = new Set([1, 2]); // CRAP and COMP columns
+  // CRAP, Δ and COMP columns right-aligned. Δ is at index 2 only when shown.
+  const ALIGN_RIGHT = showDelta ? new Set([1, 2, 3]) : new Set([1, 2]);
   const padCell = (cell: string, col: number) => {
     const gap = widths[col]! - visibleWidth(cell);
     if (gap <= 0) return cell;
@@ -83,10 +106,26 @@ function statusIcon(
   crap: number,
   threshold: number,
   failOn: number | undefined,
+  entry: DiffEntry | undefined,
 ): string {
+  // Diff status takes precedence: a regression is more actionable signal
+  // than the absolute threshold for someone reviewing a PR.
+  if (entry) {
+    if (entry.status === 'regressed') return '↑';
+    if (entry.status === 'new') return '+';
+    if (entry.status === 'moved') return '→';
+    if (entry.status === 'improved') return '↓';
+  }
   if (failOn !== undefined && crap > failOn) return '✗';
   if (crap > threshold) return '▲';
   return '✓';
+}
+
+function deltaCell(entry: DiffEntry | undefined): string {
+  if (!entry) return '—';
+  if (entry.status === 'new') return 'NEW';
+  if (entry.status === 'removed') return 'GONE';
+  return deltaSign(entry.delta);
 }
 
 function coverageCell(coverage: number, missing: boolean): string {

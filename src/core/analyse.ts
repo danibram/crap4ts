@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { type Dirent, existsSync, readdirSync, statSync } from 'node:fs';
 import { extname, join, resolve } from 'node:path';
 import { Project } from 'ts-morph';
@@ -81,6 +82,7 @@ export async function analyse(options: AnalyseOptions): Promise<AnalyseResult> {
           coverage: cov,
           crap: crap(complexity, cov),
           coverageMissing,
+          hash: hashFunctionBody(fn.node.getText()),
         });
       }
     } finally {
@@ -200,6 +202,15 @@ function globToRegex(glob: string): RegExp {
     .replaceAll(Q, '[^/]');
 
   return new RegExp(`^${pattern}$`);
+}
+
+/**
+ * 16 hex chars (~64 bits) of SHA-256 over the raw source text. Collisions are
+ * astronomically rare for the function-count scale we handle. Whitespace
+ * sensitivity is fine: if formatting changed, the function changed.
+ */
+function hashFunctionBody(text: string): string {
+  return createHash('sha256').update(text).digest('hex').slice(0, 16);
 }
 
 /**

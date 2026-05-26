@@ -4,9 +4,11 @@ import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
 import { type ResolvedConfig, loadFileConfig, mergeConfig } from './config.js';
 import { analyse } from './core/analyse.js';
+import { diffAgainstBaseline, loadBaseline } from './core/diff.js';
 import type {
   AnalyseOptions,
   CoverageFormat,
+  DiffResult,
   MissingPolicy,
   ReporterName,
 } from './core/types.js';
@@ -39,9 +41,17 @@ Coverage:
                                 skip        (drop the row entirely)
 
 Output:
-  -r, --reporter <name>       table | json | markdown | github (default: table)
+  -r, --reporter <name>       table | json | markdown | github | pr-comment
+                              (default: table)
       --summary               Only print aggregate stats (no per-function table)
   -o, --output <file>         Write to file instead of stdout
+
+Baseline:
+      --baseline <file>       Compare against a previously emitted JSON report.
+                              Adds a Δ column and classifies functions as
+                              new / moved / regressed / improved / unchanged.
+      --fail-regression       Exit 1 if any function regressed beyond --epsilon
+      --epsilon <n>           Tolerance for "no change" CRAP diff (default 0.01)
 
 Misc:
       --tsconfig <path>       Path to tsconfig.json (optional)
@@ -59,6 +69,8 @@ Examples:
   crap4ts --reporter github --fail-on 100                   # CI annotations
   crap4ts --missing skip --coverage lcov.info               # only tested code
   crap4ts --reporter json --output crap.json                # baseline file
+  crap4ts --baseline main.json --fail-regression            # PR vs main
+  crap4ts --reporter pr-comment --baseline main.json        # PR bot comment
   crap4ts --summary                                         # one-liner
 `;
 
@@ -75,6 +87,9 @@ type CliFlags = {
   missing?: string;
   summary?: boolean;
   output?: string;
+  baseline?: string;
+  'fail-regression'?: boolean;
+  epsilon?: string;
   tsconfig?: string;
   config?: string;
   help?: boolean;
@@ -122,23 +137,55 @@ export async function run(argv: string[]): Promise<number> {
 
   const raw = await analyse(options);
 
-  // --allow hides matching functions but keeps the underlying file analysed.
-  // --min hides rows below the score threshold (kept in failOn calculation
-  // below so a hidden function can still fail CI — that's intentional).
+  // `allowed` = --allow applied to both sides symmetrically. --allow is a
+  // semantic exclusion (the user is saying "I don't care about these"), so
+  // the diff should respect it too, otherwise allow-listed code would show
+  // up as removed/regressed when present in the baseline only.
+  //
+  // `visible` = `allowed` + --min, used only for display. --min is a score
+  // threshold, *not* a semantic exclusion — a function whose CRAP is below
+  // --min is still a real function and we want to know if it regressed,
+  // even if it doesn't appear in the table.
   const allowMatcher = makeAllowMatcher(config.allow);
-  const visible = raw.functions.filter((fn) => {
-    if (allowMatcher(fn.file, fn.name)) return false;
-    if (config.min !== undefined && fn.crap < config.min) return false;
-    return true;
-  });
+  const allowed = raw.functions.filter((fn) => !allowMatcher(fn.file, fn.name));
+  const visible = allowed.filter(
+    (fn) => config.min === undefined || fn.crap >= config.min,
+  );
   const result = { ...raw, functions: visible };
 
-  const output = render(config.reporter, result, {
+  let diff: DiffResult | undefined;
+  let baselineSource: string | undefined;
+  if (config.baseline) {
+    try {
+      const loaded = loadBaseline(config.baseline);
+      baselineSource = loaded.source;
+      const baselineAllowed = loaded.functions.filter(
+        (fn) => !allowMatcher(fn.file, fn.name),
+      );
+      diff = diffAgainstBaseline(allowed, baselineAllowed, {
+        epsilon: config.epsilon,
+      });
+    } catch (err) {
+      process.stderr.write(`crap4ts: ${(err as Error).message}\n`);
+      return 2;
+    }
+  } else if (config.failRegression) {
+    process.stderr.write(
+      'crap4ts: --fail-regression requires --baseline <file>\n',
+    );
+    return 2;
+  }
+
+  const ctx: Parameters<typeof render>[2] = {
     threshold: config.threshold,
     failOn: config.failOn,
     top: config.top,
     summary: config.summary,
-  });
+  };
+  if (diff) ctx.diff = diff;
+  if (baselineSource) ctx.baselineSource = baselineSource;
+
+  const output = render(config.reporter, result, ctx);
   const final = output.endsWith('\n') ? output : `${output}\n`;
   if (config.output) {
     writeFileSync(config.output, final);
@@ -157,6 +204,12 @@ export async function run(argv: string[]): Promise<number> {
       );
       return 1;
     }
+  }
+  if (config.failRegression && diff && diff.summary.regressions > 0) {
+    process.stderr.write(
+      `crap4ts: ${diff.summary.regressions} function(s) regressed beyond --epsilon=${config.epsilon}\n`,
+    );
+    return 1;
   }
   return 0;
 }
@@ -226,6 +279,9 @@ const OPTIONS = {
   missing: { type: 'string' },
   summary: { type: 'boolean' },
   output: { type: 'string', short: 'o' },
+  baseline: { type: 'string' },
+  'fail-regression': { type: 'boolean' },
+  epsilon: { type: 'string' },
   tsconfig: { type: 'string' },
   config: { type: 'string' },
   help: { type: 'boolean', short: 'h' },
@@ -268,6 +324,13 @@ function buildCliConfig(
     result.coverageFormat = expectCoverageFormat(v['coverage-format']);
   }
   if (v.tsconfig !== undefined) result.tsconfigPath = resolve(v.tsconfig);
+  if (v.baseline !== undefined) result.baseline = resolve(v.baseline);
+  if (v['fail-regression'] !== undefined) {
+    result.failRegression = v['fail-regression'];
+  }
+  if (v.epsilon !== undefined) {
+    result.epsilon = expectNumber('--epsilon', v.epsilon);
+  }
 
   return result;
 }
@@ -285,12 +348,13 @@ function expectReporter(raw: string): ReporterName {
     raw === 'table' ||
     raw === 'json' ||
     raw === 'markdown' ||
-    raw === 'github'
+    raw === 'github' ||
+    raw === 'pr-comment'
   ) {
     return raw;
   }
   throw new Error(
-    `--reporter expects one of: table | json | markdown | github (got "${raw}")`,
+    `--reporter expects one of: table | json | markdown | github | pr-comment (got "${raw}")`,
   );
 }
 

@@ -1,5 +1,6 @@
 import { relative } from 'node:path';
-import type { AnalyseResult } from '../core/types.js';
+import type { AnalyseResult, DiffEntry } from '../core/types.js';
+import { deltaSign, makeDiffLookup } from './diffLookup.js';
 import type { ReporterContext } from './index.js';
 
 export function renderMarkdown(
@@ -33,6 +34,15 @@ export function renderMarkdown(
   } else {
     lines.push('- Coverage: _none provided_ — every function defaults to 0%.');
   }
+  if (ctx.diff && ctx.baselineSource) {
+    const s = ctx.diff.summary;
+    lines.push(
+      `- Baseline: \`${relative(cwd, ctx.baselineSource)}\` — ` +
+        `**${s.regressed}** regressed, **${s.new}** new, ` +
+        `**${s.moved}** moved, **${s.improved}** improved, ` +
+        `**${s.removed}** removed`,
+    );
+  }
   lines.push('');
 
   if (ctx.summary) return `${lines.join('\n')}\n`;
@@ -42,15 +52,30 @@ export function renderMarkdown(
     return `${lines.join('\n')}\n`;
   }
 
-  lines.push('| | CRAP | Complexity | Coverage | Location | Function |');
-  lines.push('|---|---:|---:|---:|---|---|');
+  const lookup = ctx.diff ? makeDiffLookup(ctx.diff) : undefined;
+  const showDelta = lookup !== undefined;
+
+  if (showDelta) {
+    lines.push('| | CRAP | Δ | Complexity | Coverage | Location | Function |');
+    lines.push('|---|---:|---:|---:|---:|---|---|');
+  } else {
+    lines.push('| | CRAP | Complexity | Coverage | Location | Function |');
+    lines.push('|---|---:|---:|---:|---|---|');
+  }
   for (const fn of top) {
-    const icon = statusIcon(fn.crap, ctx.threshold, ctx.failOn);
+    const entry = lookup?.(fn);
+    const icon = statusIcon(fn.crap, ctx.threshold, ctx.failOn, entry);
     const location = `\`${relative(cwd, fn.file)}:${fn.startLine}\``;
     const cov = fn.coverageMissing ? 'n/a' : `${fn.coverage.toFixed(0)}%`;
-    lines.push(
-      `| ${icon} | ${fn.crap.toFixed(1)} | ${fn.complexity} | ${cov} | ${location} | \`${fn.name}\` |`,
-    );
+    if (showDelta) {
+      lines.push(
+        `| ${icon} | ${fn.crap.toFixed(1)} | ${deltaCell(entry)} | ${fn.complexity} | ${cov} | ${location} | \`${fn.name}\` |`,
+      );
+    } else {
+      lines.push(
+        `| ${icon} | ${fn.crap.toFixed(1)} | ${fn.complexity} | ${cov} | ${location} | \`${fn.name}\` |`,
+      );
+    }
   }
   return `${lines.join('\n')}\n`;
 }
@@ -59,8 +84,22 @@ function statusIcon(
   crap: number,
   threshold: number,
   failOn: number | undefined,
+  entry: DiffEntry | undefined,
 ): string {
+  if (entry) {
+    if (entry.status === 'regressed') return '⬆️';
+    if (entry.status === 'new') return '🆕';
+    if (entry.status === 'moved') return '↔️';
+    if (entry.status === 'improved') return '⬇️';
+  }
   if (failOn !== undefined && crap > failOn) return '🚨';
   if (crap > threshold) return '⚠️';
   return '✅';
+}
+
+function deltaCell(entry: DiffEntry | undefined): string {
+  if (!entry) return '—';
+  if (entry.status === 'new') return '**NEW**';
+  if (entry.status === 'removed') return '_gone_';
+  return deltaSign(entry.delta);
 }

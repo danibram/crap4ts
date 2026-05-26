@@ -37,6 +37,12 @@ crap4ts src/ --reporter markdown > crap-report.md
 
 # GitHub Actions inline annotations
 crap4ts src/ --reporter github
+
+# Compare a PR against a baseline from main and fail on regressions
+crap4ts src/ --baseline crap-main.json --fail-regression
+
+# Opinionated PR-bot comment (sticky marker for in-place updates)
+crap4ts src/ --baseline crap-main.json --reporter pr-comment > comment.md
 ```
 
 ## Output
@@ -58,12 +64,13 @@ Status icons: `✗` exceeds `--fail-on`, `▲` exceeds `--threshold`, `✓` clea
 
 ## Reporters
 
-| Reporter   | Use for                                           |
-|------------|---------------------------------------------------|
-| `table`    | Default — aligned columns in the terminal         |
-| `json`     | Machine-readable output (CI scripts, dashboards)  |
-| `markdown` | PR body / GitHub issue (GFM table)                |
-| `github`   | `::warning::` / `::error::` annotations for PRs   |
+| Reporter     | Use for                                           |
+|--------------|---------------------------------------------------|
+| `table`      | Default — aligned columns in the terminal         |
+| `json`       | Machine-readable output (CI scripts, dashboards)  |
+| `markdown`   | PR body / GitHub issue (GFM table)                |
+| `github`     | `::warning::` / `::error::` annotations for PRs   |
+| `pr-comment` | Opinionated PR-bot comment with sticky marker     |
 
 ## Configuration
 
@@ -83,7 +90,10 @@ Status icons: `✗` exceeds `--fail-on`, `▲` exceeds `--threshold`, `✓` clea
   "summary": false,
   "coverage": "./coverage/coverage-final.json",
   "coverageFormat": "auto",
-  "tsconfig": "./tsconfig.json"
+  "tsconfig": "./tsconfig.json",
+  "baseline": "./crap-main.json",
+  "failRegression": true,
+  "epsilon": 0.01
 }
 ```
 
@@ -117,9 +127,17 @@ Status icons: `✗` exceeds `--fail-on`, `▲` exceeds `--threshold`, `✓` clea
 
 | Flag                          | Default | Description                                                |
 |-------------------------------|---------|------------------------------------------------------------|
-| `-r, --reporter <name>`       | `table` | `table` \| `json` \| `markdown` \| `github`                |
+| `-r, --reporter <name>`       | `table` | `table` \| `json` \| `markdown` \| `github` \| `pr-comment` |
 | `--summary`                   | off     | Only print aggregate stats + worst offender (no table).    |
 | `-o, --output <file>`         | _none_  | Write to file instead of stdout.                           |
+
+#### Baseline
+
+| Flag                          | Default | Description                                                |
+|-------------------------------|---------|------------------------------------------------------------|
+| `--baseline <file>`           | _none_  | Compare against a previously emitted JSON report. Adds a Δ column and classifies each function as new / moved / regressed / improved / unchanged. |
+| `--fail-regression`           | off     | Exit 1 if any function regressed beyond `--epsilon`. Requires `--baseline`. |
+| `--epsilon <n>`               | `0.01`  | Tolerance for "no change" CRAP diff. Functions with `|Δ| ≤ epsilon` are considered unchanged. |
 
 #### Misc
 
@@ -159,6 +177,48 @@ The formula has two pure components:
 - **Coverage = 0%** → `CRAP = comp(m)² + comp(m)`. Complexity 5 jumps to 30, complexity 10 jumps to 110. Test coverage drops the score fast — adding _any_ tests cuts CRAP roughly in eighths.
 
 The fastest way to fix a high CRAP value is almost always to add tests, then refactor with confidence.
+
+## Baseline workflow (v0.3)
+
+The hardest sell of any code-quality gate is _"we already have CRAP 200 functions in this repo, are you going to make me fix them all before I can merge?"_. The baseline workflow says: **no, just don't make it worse.**
+
+1. On `main`, emit a baseline JSON once per build:
+
+   ```bash
+   crap4ts src/ --coverage coverage/coverage-final.json \
+     --reporter json --output crap-main.json
+   ```
+
+   Stash `crap-main.json` somewhere your PR CI can fetch it (artifact, S3, branch protection cache, etc.).
+
+2. On every PR, compare against it and fail on regressions:
+
+   ```bash
+   crap4ts src/ --coverage coverage/coverage-final.json \
+     --baseline crap-main.json --fail-regression
+   ```
+
+`crap4ts` then prints a Δ column and classifies each function:
+
+| Status        | Meaning                                                          |
+|---------------|------------------------------------------------------------------|
+| `regressed`   | Same function, CRAP went up by more than `--epsilon`              |
+| `new`         | Function didn't exist in the baseline                            |
+| `moved`       | Function body hash matches a baseline entry in a different file or under a different name |
+| `improved`    | CRAP dropped by more than `--epsilon`                            |
+| `unchanged`   | |Δ| ≤ `--epsilon`                                                |
+| `removed`     | Function existed in the baseline but is gone now                 |
+
+Move detection is hash-based, so refactor PRs that shuffle code around don't get reported as a wall of `new` + `removed` pairs. The default `--epsilon 0.01` absorbs the sub-percent CRAP jitter that coverage tools introduce between runs.
+
+### PR-bot comment
+
+```bash
+crap4ts src/ --baseline crap-main.json \
+  --reporter pr-comment --output comment.md
+```
+
+`pr-comment` emits a sticky `<!-- crap4ts-report -->` marker on the first line. Wire your PR-comment workflow to find that marker and update the existing comment instead of posting a new one each run. The comment body collapses improvements and existing hot-spots into `<details>` blocks so the "what got worse" table stays front-and-center.
 
 ## CI integration
 
