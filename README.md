@@ -18,7 +18,9 @@ The original metric was proposed by Alberto Savoia & Bob Evans in 2007 ([Pardon 
 
 ## Live examples
 
-Five PRs sit open against this repo, each exercising one diff scenario for the bot to comment on. Click any of them to see the actual sticky comment plus the Code Scanning annotations the bot posts:
+Open PRs against this repo, each exercising one scenario for the bot to comment on. Click any of them to see the actual sticky comment plus the Code Scanning annotations the bot posts.
+
+### Diff scenarios
 
 | PR | What it shows |
 |----|---------------|
@@ -27,6 +29,16 @@ Five PRs sit open against this repo, each exercising one diff scenario for the b
 | [#3 Demo - Refactor that improves CRAP](https://github.com/danibram/crap4ts/pull/3) | `processOrder` split into helpers, large negative Δ, ✅ verdict |
 | [#4 Demo - Pure move/rename detection](https://github.com/danibram/crap4ts/pull/4) | `git mv` reports as **moved**, not new+removed |
 | [#7 Demo - SARIF upload to Code Scanning](https://github.com/danibram/crap4ts/pull/7) | Sticky comment **and** inline error annotations in the PR diff |
+
+### Monorepo layouts
+
+Each of these PRs adds a self-contained fixture under `examples/monorepos/` and a README inside the fixture showing the run command + expected per-package output.
+
+| PR | Workspace config | Fixture |
+|----|------------------|---------|
+| [#9 Demo - Monorepo (pnpm-workspace.yaml)](https://github.com/danibram/crap4ts/pull/9) | `pnpm-workspace.yaml` | `examples/monorepos/pnpm/` |
+| [#10 Demo - Monorepo (package.json#workspaces)](https://github.com/danibram/crap4ts/pull/10) | `package.json#workspaces` (bun / yarn / npm) | `examples/monorepos/npm/` |
+| [#11 Demo - Monorepo (Turbo)](https://github.com/danibram/crap4ts/pull/11) | `turbo.json` + `pnpm-workspace.yaml` | `examples/monorepos/turbo/` |
 
 ## 30-second setup
 
