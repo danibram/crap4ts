@@ -162,13 +162,16 @@ export async function run(argv: string[]): Promise<number> {
 
   // Workspace discovery happens before analyse so we can both expand the
   // scan paths (when the user didn't pass any) AND populate the per-function
-  // `package` label. If discovery returns nothing we silently fall back to
-  // single-package mode — better than yelling about a missing config.
+  // `package` label. We anchor discovery at the first scan path (or cwd
+  // when no path was given) — without that, `crap4ts --workspace /path/to/repo`
+  // would look for a workspace config in the user's current shell dir, not
+  // in the target repo, and silently fall back to single-package mode.
   let workspacePackages: Array<{ name: string; path: string }> = [];
   if (config.workspace) {
     const configPath =
       typeof config.workspace === 'string' ? config.workspace : undefined;
-    workspacePackages = discoverWorkspace(process.cwd(), configPath);
+    const anchor = config.paths[0] ?? process.cwd();
+    workspacePackages = discoverWorkspace(anchor, configPath);
     if (workspacePackages.length > 0) {
       options.workspacePackages = workspacePackages;
       // When the user gave no explicit paths, scan every package — that's
