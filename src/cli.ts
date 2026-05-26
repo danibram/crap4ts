@@ -1,4 +1,4 @@
-import { readFileSync } from 'node:fs';
+import { readFileSync, realpathSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
@@ -208,7 +208,12 @@ function readVersion(): string {
 function isDirectInvocation(): boolean {
   if (!process.argv[1]) return false;
   try {
-    return process.argv[1] === fileURLToPath(import.meta.url);
+    // Compare *resolved* paths so symlinks (bun link, pnpm, npx cache)
+    // still trigger main. Without this the script silently no-ops when
+    // invoked via the bin symlink.
+    const argv1 = realpathSync(process.argv[1]);
+    const here = realpathSync(fileURLToPath(import.meta.url));
+    return argv1 === here;
   } catch {
     return false;
   }
