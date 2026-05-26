@@ -6,7 +6,12 @@ import { loadCoverage } from '../coverage/index.js';
 import { cyclomaticComplexity } from './complexity.js';
 import { crap } from './crap.js';
 import { extractFunctions } from './functions.js';
-import type { AnalyseOptions, AnalyseResult, CrapFunction } from './types.js';
+import type {
+  AnalyseOptions,
+  AnalyseResult,
+  CrapFunction,
+  MissingPolicy,
+} from './types.js';
 
 const SOURCE_EXTENSIONS = new Set(['.ts', '.tsx', '.js', '.jsx']);
 
@@ -45,6 +50,7 @@ export async function analyse(options: AnalyseOptions): Promise<AnalyseResult> {
   // monorepos with several hundred files.
   const project = createProject(options.tsconfigPath);
   const functions: CrapFunction[] = [];
+  const missing: MissingPolicy = options.missing ?? 'pessimistic';
 
   for (const filePath of filePaths) {
     const source = project.addSourceFileAtPathIfExists(filePath);
@@ -53,9 +59,19 @@ export async function analyse(options: AnalyseOptions): Promise<AnalyseResult> {
       const extracted = extractFunctions(source);
       for (const fn of extracted) {
         const complexity = cyclomaticComplexity(fn.node);
-        const cov = coverage
-          ? coverageForRange(coverage, filePath, fn.startLine, fn.endLine)
-          : 0;
+        const measured = coverage
+          ? measuredCoverage(coverage, filePath, fn.startLine, fn.endLine)
+          : undefined;
+
+        if (measured === undefined && missing === 'skip') continue;
+
+        const coverageMissing = measured === undefined;
+        const cov = coverageMissing
+          ? missing === 'optimistic'
+            ? 100
+            : 0
+          : measured;
+
         functions.push({
           file: filePath,
           name: fn.name,
@@ -64,6 +80,7 @@ export async function analyse(options: AnalyseOptions): Promise<AnalyseResult> {
           complexity,
           coverage: cov,
           crap: crap(complexity, cov),
+          coverageMissing,
         });
       }
     } finally {
@@ -185,13 +202,21 @@ function globToRegex(glob: string): RegExp {
   return new RegExp(`^${pattern}$`);
 }
 
-function coverageForRange(
+/**
+ * Returns the % of statements covered in the given line range, or undefined
+ * when there is no coverage data at all for that range (file absent from
+ * report, or report has no executable statements in the range).
+ *
+ * Important: 0% (data present, nothing fired) is distinct from undefined
+ * (no data found). The caller's --missing policy decides what to do.
+ */
+function measuredCoverage(
   coverage: CoverageProvider,
   file: string,
   startLine: number,
   endLine: number,
-): number {
+): number | undefined {
   const range = coverage.getRangeCoverage(file, startLine, endLine);
-  if (!range || range.total === 0) return 0;
+  if (!range || range.total === 0) return undefined;
   return (range.covered / range.total) * 100;
 }

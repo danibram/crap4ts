@@ -22,7 +22,8 @@ export function renderGithub(
     const isError = ctx.failOn !== undefined && fn.crap > ctx.failOn;
     const level = isError ? 'error' : 'warning';
     const file = relative(cwd, fn.file);
-    const title = `C.R.A.P. ${fn.crap.toFixed(1)} (comp ${fn.complexity}, cov ${fn.coverage.toFixed(0)}%)`;
+    const cov = fn.coverageMissing ? 'n/a' : `${fn.coverage.toFixed(0)}%`;
+    const title = `C.R.A.P. ${fn.crap.toFixed(1)} (comp ${fn.complexity}, cov ${cov})`;
     const message = `${fn.name} exceeds CRAP threshold (${ctx.threshold}).`;
     lines.push(
       `::${level} file=${file},line=${fn.startLine},endLine=${fn.endLine},title=${encode(title)}::${encode(message)}`,

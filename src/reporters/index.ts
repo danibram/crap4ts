@@ -8,6 +8,7 @@ export type ReporterContext = {
   threshold: number;
   failOn: number | undefined;
   top: number;
+  summary: boolean;
 };
 
 export function render(

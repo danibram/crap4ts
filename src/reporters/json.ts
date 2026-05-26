@@ -2,6 +2,9 @@ import { relative } from 'node:path';
 import type { AnalyseResult } from '../core/types.js';
 import type { ReporterContext } from './index.js';
 
+const SCHEMA_URL =
+  'https://raw.githubusercontent.com/danibram/crap4ts/main/schemas/report-v1.json';
+
 export function renderJson(
   result: AnalyseResult,
   ctx: ReporterContext,
@@ -9,27 +12,49 @@ export function renderJson(
   const cwd = process.cwd();
   const total = result.functions.length;
   const crappy = result.functions.filter((f) => f.crap > ctx.threshold).length;
-  return `${JSON.stringify(
-    {
-      generatedAt: new Date().toISOString(),
-      filesScanned: result.filesScanned,
-      coverageSource: result.coverageSource
-        ? relative(cwd, result.coverageSource)
+  const worst = result.functions[0];
+
+  const envelope = {
+    $schema: SCHEMA_URL,
+    version: '1',
+    generatedAt: new Date().toISOString(),
+    filesScanned: result.filesScanned,
+    coverage: result.coverageSource
+      ? {
+          source: relative(cwd, result.coverageSource),
+          format: result.coverageFormat ?? null,
+        }
+      : null,
+    threshold: ctx.threshold,
+    failOn: ctx.failOn ?? null,
+    totals: {
+      functions: total,
+      aboveThreshold: crappy,
+      aboveThresholdPct: total === 0 ? 0 : (crappy / total) * 100,
+      worst: worst
+        ? {
+            name: worst.name,
+            file: relative(cwd, worst.file),
+            line: worst.startLine,
+            crap: worst.crap,
+          }
         : null,
-      coverageFormat: result.coverageFormat ?? null,
-      threshold: ctx.threshold,
-      failOn: ctx.failOn ?? null,
-      totals: {
-        functions: total,
-        aboveThreshold: crappy,
-        aboveThresholdPct: total === 0 ? 0 : (crappy / total) * 100,
-      },
-      functions: result.functions.map((fn) => ({
-        ...fn,
-        file: relative(cwd, fn.file),
-      })),
     },
-    null,
-    2,
-  )}\n`;
+    ...(ctx.summary
+      ? {}
+      : {
+          functions: result.functions.map((fn) => ({
+            file: relative(cwd, fn.file),
+            name: fn.name,
+            startLine: fn.startLine,
+            endLine: fn.endLine,
+            complexity: fn.complexity,
+            coverage: fn.coverageMissing ? null : fn.coverage,
+            coverageMissing: fn.coverageMissing,
+            crap: fn.crap,
+          })),
+        }),
+  };
+
+  return `${JSON.stringify(envelope, null, 2)}\n`;
 }
