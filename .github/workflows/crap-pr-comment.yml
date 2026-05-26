@@ -7,6 +7,11 @@ on:
 permissions:
   contents: read
   pull-requests: write
+  # security-events is what github/codeql-action/upload-sarif needs to
+  # post results to Code Scanning. Granting it here keeps the SARIF
+  # upload in the same workflow as the PR-bot comment so we only build
+  # the PR once.
+  security-events: write
 
 concurrency:
   group: crap-pr-comment-${{ github.event.pull_request.number }}
@@ -78,3 +83,22 @@ jobs:
         with:
           header: crap4ts-report
           path: /tmp/crap-comment.md
+
+      - name: Render SARIF
+        working-directory: pr
+        # No --fail-on here on purpose: the comment job already runs the
+        # gate; we want the SARIF artefact to surface ALL warnings, not
+        # just the failures.
+        run: |
+          node dist/cli.js src/ examples/ \
+            -c coverage/coverage-final.json \
+            --reporter sarif \
+            --threshold 30 \
+            --fail-on 100 \
+            --output /tmp/crap.sarif || true
+
+      - name: Upload SARIF to Code Scanning
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: /tmp/crap.sarif
+          category: crap4ts
