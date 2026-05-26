@@ -76,14 +76,17 @@ export async function runInit(argv: string[]): Promise<number> {
   if (values.workflow) {
     const workflowPath = resolve(cwd, '.github/workflows/crap.yml');
     if (existsSync(workflowPath) && !values.force) {
+      // Hard fail rather than silently skip: keeping the old workflow is the
+      // kind of surprise that bites later when CI behaviour mysteriously
+      // doesn't match a freshly-published init template.
       process.stderr.write(
         `crap4ts init: ${relative(cwd, workflowPath)} already exists. Pass --force to overwrite.\n`,
       );
-    } else {
-      mkdirSync(dirname(workflowPath), { recursive: true });
-      writeFileSync(workflowPath, renderWorkflow(runner, coverage, srcDir));
-      written.push(relative(cwd, workflowPath));
+      return 2;
     }
+    mkdirSync(dirname(workflowPath), { recursive: true });
+    writeFileSync(workflowPath, renderWorkflow(runner, coverage, srcDir));
+    written.push(relative(cwd, workflowPath));
   }
 
   process.stdout.write(
