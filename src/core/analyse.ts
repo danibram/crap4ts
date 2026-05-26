@@ -14,6 +14,7 @@ import type {
   CrapFunction,
   MissingPolicy,
 } from './types.js';
+import { resolvePackageForFile } from './workspace.js';
 
 const SOURCE_EXTENSIONS = new Set(['.ts', '.tsx', '.js', '.jsx']);
 
@@ -62,6 +63,7 @@ export async function analyse(options: AnalyseOptions): Promise<AnalyseResult> {
   const project = createProject(options.tsconfigPath);
   const functions: CrapFunction[] = [];
   const missing: MissingPolicy = options.missing ?? 'pessimistic';
+  const workspacePackages = options.workspacePackages ?? [];
 
   for (const filePath of filePaths) {
     const source = project.addSourceFileAtPathIfExists(filePath);
@@ -83,6 +85,10 @@ export async function analyse(options: AnalyseOptions): Promise<AnalyseResult> {
             : 0
           : measured;
 
+        const pkg =
+          workspacePackages.length > 0
+            ? resolvePackageForFile(filePath, workspacePackages)
+            : undefined;
         functions.push({
           file: filePath,
           name: fn.name,
@@ -93,6 +99,7 @@ export async function analyse(options: AnalyseOptions): Promise<AnalyseResult> {
           crap: crap(complexity, cov),
           coverageMissing,
           hash: hashFunctionBody(fn.node.getText()),
+          ...(pkg ? { package: pkg } : {}),
         });
       }
     } finally {

@@ -12,12 +12,15 @@ import type {
   MissingPolicy,
   ReporterName,
 } from './core/types.js';
+import { discoverWorkspace } from './core/workspace.js';
+import { runInit } from './init.js';
 import { render } from './reporters/index.js';
 
 const HELP = `crap4ts — C.R.A.P. (Change Risk Analysis & Predictions) index for TypeScript.
 
 Usage:
   crap4ts [paths...] [options]
+  crap4ts init [--workflow] [--runner <vitest|jest|bun>] [--force]
 
 Filtering:
   -i, --ignore <glob>         Skip files matching glob (repeatable). Excluded
@@ -53,6 +56,15 @@ Baseline:
       --fail-regression       Exit 1 if any function regressed beyond --epsilon
       --epsilon <n>           Tolerance for "no change" CRAP diff (default 0.01)
 
+Monorepo:
+      --workspace             Auto-detect pnpm-workspace.yaml or
+                              package.json#workspaces, expand into per-package
+                              paths, and tag each function with its package.
+      --workspace-config <p>  Override the auto-detected workspace config
+                              with an explicit path.
+      --report-by <mode>      function (default) | package — group rows by
+                              workspace package when --workspace is active.
+
 Misc:
       --tsconfig <path>       Path to tsconfig.json (optional)
       --config <path>         Path to crap.config.json (optional)
@@ -64,6 +76,7 @@ Config:
   "crap" section of package.json in cwd. CLI flags always override config.
 
 Examples:
+  crap4ts init --workflow                                   # scaffold config + GitHub Action
   crap4ts src/                                              # scan src/, no coverage
   crap4ts --coverage coverage/coverage-final.json
   crap4ts --reporter github --fail-on 100                   # CI annotations
@@ -71,6 +84,7 @@ Examples:
   crap4ts --reporter json --output crap.json                # baseline file
   crap4ts --baseline main.json --fail-regression            # PR vs main
   crap4ts --reporter pr-comment --baseline main.json        # PR bot comment
+  crap4ts --workspace --report-by package                   # monorepo overview
   crap4ts --summary                                         # one-liner
 `;
 
@@ -90,6 +104,9 @@ type CliFlags = {
   baseline?: string;
   'fail-regression'?: boolean;
   epsilon?: string;
+  workspace?: boolean;
+  'workspace-config'?: string;
+  'report-by'?: string;
   tsconfig?: string;
   config?: string;
   help?: boolean;
@@ -97,6 +114,14 @@ type CliFlags = {
 };
 
 export async function run(argv: string[]): Promise<number> {
+  // `crap4ts init` is a subcommand, not a path. We branch BEFORE parseArgs
+  // because init has its own flag surface and conflating them with the
+  // scanner's flags would lead to confusing errors when the user passes
+  // a flag that init accepts but the scanner doesn't (or vice versa).
+  if (argv[0] === 'init') {
+    return runInit(argv.slice(1));
+  }
+
   let values: CliFlags;
   let positionals: string[];
   try {
@@ -134,6 +159,25 @@ export async function run(argv: string[]): Promise<number> {
   };
   if (config.coverageFile) options.coverageFile = config.coverageFile;
   if (config.tsconfigPath) options.tsconfigPath = config.tsconfigPath;
+
+  // Workspace discovery happens before analyse so we can both expand the
+  // scan paths (when the user didn't pass any) AND populate the per-function
+  // `package` label. If discovery returns nothing we silently fall back to
+  // single-package mode — better than yelling about a missing config.
+  let workspacePackages: Array<{ name: string; path: string }> = [];
+  if (config.workspace) {
+    const configPath =
+      typeof config.workspace === 'string' ? config.workspace : undefined;
+    workspacePackages = discoverWorkspace(process.cwd(), configPath);
+    if (workspacePackages.length > 0) {
+      options.workspacePackages = workspacePackages;
+      // When the user gave no explicit paths, scan every package — that's
+      // the natural meaning of "I'm in a monorepo, look at the whole thing".
+      if (positionals.length === 0) {
+        options.paths = workspacePackages.map((p) => p.path);
+      }
+    }
+  }
 
   const raw = await analyse(options);
 
@@ -182,6 +226,7 @@ export async function run(argv: string[]): Promise<number> {
     top: config.top,
     summary: config.summary,
     toolVersion: readVersion(),
+    reportBy: config.reportBy,
   };
   if (diff) ctx.diff = diff;
   if (baselineSource) ctx.baselineSource = baselineSource;
@@ -283,6 +328,9 @@ const OPTIONS = {
   baseline: { type: 'string' },
   'fail-regression': { type: 'boolean' },
   epsilon: { type: 'string' },
+  workspace: { type: 'boolean' },
+  'workspace-config': { type: 'string' },
+  'report-by': { type: 'string' },
   tsconfig: { type: 'string' },
   config: { type: 'string' },
   help: { type: 'boolean', short: 'h' },
@@ -332,8 +380,24 @@ function buildCliConfig(
   if (v.epsilon !== undefined) {
     result.epsilon = expectNumber('--epsilon', v.epsilon);
   }
+  // --workspace-config wins over --workspace because it's more specific.
+  if (v['workspace-config'] !== undefined) {
+    result.workspace = resolve(v['workspace-config']);
+  } else if (v.workspace) {
+    result.workspace = true;
+  }
+  if (v['report-by'] !== undefined) {
+    result.reportBy = expectReportBy(v['report-by']);
+  }
 
   return result;
+}
+
+function expectReportBy(raw: string): 'function' | 'package' {
+  if (raw === 'function' || raw === 'package') return raw;
+  throw new Error(
+    `--report-by expects one of: function | package (got "${raw}")`,
+  );
 }
 
 function expectNumber(flag: string, raw: string): number {

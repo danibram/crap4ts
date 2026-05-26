@@ -1,26 +1,52 @@
 # crap4ts
 
-> C.R.A.P. (Change Risk Analysis & Predictions) index for TypeScript / JavaScript.
-> Surfaces risky-to-change code by combining cyclomatic complexity with test coverage.
+> **A code-quality gate that you can actually ship.**
+> Doesn't ask you to fix legacy — just stops you from making things worse.
 
 [![npm version](https://img.shields.io/npm/v/@danibram/crap4ts.svg)](https://www.npmjs.com/package/@danibram/crap4ts)
 [![license](https://img.shields.io/npm/l/@danibram/crap4ts.svg)](./LICENSE)
+
+The hardest sell of any code-quality tool is _"we already have 14 000 findings from the last linter we tried, are you really asking me to fix them all before I can merge?"_. crap4ts says: **no**.
+
+It computes the C.R.A.P. score — McCabe complexity weighted by test coverage — for every function in your TypeScript / JavaScript codebase, then diffs your branch against a baseline from `main`. CI fails only when this PR makes things measurably worse. Legacy hot-spots stay visible in the report but never block a merge.
 
 ```text
 CRAP(m) = comp(m)² × (1 − cov(m)/100)³ + comp(m)
 ```
 
-Where `comp(m)` is the McCabe cyclomatic complexity of function `m`, and `cov(m)` is its statement coverage (%). The original metric was proposed by Alberto Savoia & Bob Evans in 2007 ([Pardon My French, But This Code Is C.R.A.P.](https://web.archive.org/web/20200529220442/https://www.artima.com/weblogs/viewpost.jsp?thread=210575)). `crap4ts` brings it to the TypeScript ecosystem with first-class support for vitest, jest, bun test, and any LCOV-emitting tool.
+The original metric was proposed by Alberto Savoia & Bob Evans in 2007 ([Pardon My French, But This Code Is C.R.A.P.](https://web.archive.org/web/20200529220442/https://www.artima.com/weblogs/viewpost.jsp?thread=210575)). crap4ts brings it to the TypeScript ecosystem with first-class support for vitest, jest, bun test, and any LCOV-emitting tool.
 
-## Quick start
+## Live examples
+
+Five PRs sit open against this repo, each exercising one diff scenario for the bot to comment on. Click any of them to see the actual sticky comment plus the Code Scanning annotations the bot posts:
+
+| PR | What it shows |
+|----|---------------|
+| [#1 Demo - Clear regression on existing function](https://github.com/danibram/crap4ts/pull/1) | `processOrder` regresses, `--fail-regression` exits 1 |
+| [#2 Demo - New high-CRAP function added](https://github.com/danibram/crap4ts/pull/2) | New `validateInvoice` flagged as **NEW**, legacy stays out of the way |
+| [#3 Demo - Refactor that improves CRAP](https://github.com/danibram/crap4ts/pull/3) | `processOrder` split into helpers, large negative Δ, ✅ verdict |
+| [#4 Demo - Pure move/rename detection](https://github.com/danibram/crap4ts/pull/4) | `git mv` reports as **moved**, not new+removed |
+| [#7 Demo - SARIF upload to Code Scanning](https://github.com/danibram/crap4ts/pull/7) | Sticky comment **and** inline error annotations in the PR diff |
+
+## 30-second setup
 
 ```bash
-# Run directly (no install)
-bunx @danibram/crap4ts src/
-
-# Or as a project dev dependency
-bun add -D @danibram/crap4ts
+cd my-project
+bunx @danibram/crap4ts init --workflow
+git add crap.config.json .github/workflows/crap.yml
+git commit -m "ci: gate on CRAP regressions" && git push
 ```
+
+`crap4ts init` detects your test runner (vitest / jest / bun test), writes `crap.config.json` with sensible defaults, and drops a baseline-aware GitHub workflow that:
+
+- builds a baseline from `main` on every PR
+- posts a sticky bot comment under each PR with the diff
+- uploads SARIF to Code Scanning (inline annotations + Security tab)
+- exits non-zero when any function regressed
+
+That's it. No yaml-archaeology, no "which path should I scan", no copy-pasting from this README.
+
+## Manual quick start
 
 ```bash
 # Without coverage data — pure complexity ranking
@@ -43,6 +69,9 @@ crap4ts src/ --baseline crap-main.json --fail-regression
 
 # Opinionated PR-bot comment (sticky marker for in-place updates)
 crap4ts src/ --baseline crap-main.json --reporter pr-comment > comment.md
+
+# Monorepo overview, grouped by package
+crap4ts --workspace --report-by package
 ```
 
 ## Output
@@ -221,20 +250,6 @@ crap4ts src/ --baseline crap-main.json \
 
 `pr-comment` emits a sticky `<!-- crap4ts-report -->` marker on the first line. Wire your PR-comment workflow to find that marker and update the existing comment instead of posting a new one each run. The comment body collapses improvements and existing hot-spots into `<details>` blocks so the "what got worse" table stays front-and-center.
 
-### Live examples
-
-The repo runs the baseline workflow on its own PRs via [`.github/workflows/crap-pr-comment.yml`](./.github/workflows/crap-pr-comment.yml). Four `Demo - *` PRs sit open against `main` so you can see exactly what the bot posts in each scenario:
-
-| PR | Scenario | What the comment shows |
-|----|----------|------------------------|
-| [#1 Demo - Clear regression on existing function](https://github.com/danibram/crap4ts/pull/1) | Existing `processOrder` gets more nested branches | `processOrder` flagged as **regressed** with a positive Δ; `--fail-regression` would exit 1 |
-| [#2 Demo - New high-CRAP function added](https://github.com/danibram/crap4ts/pull/2) | New `validateInvoice` ships without tests | `validateInvoice` flagged as **NEW**; legacy `processOrder` stays out of the way |
-| [#3 Demo - Refactor that improves CRAP](https://github.com/danibram/crap4ts/pull/3) | `processOrder` split into discount + tier helpers | `processOrder` reported as **improved** with a large negative Δ; verdict is ✅ No regressions |
-| [#4 Demo - Pure move/rename detection](https://github.com/danibram/crap4ts/pull/4) | `git mv` of `examples/demo.ts` to a sub-directory | 1 row in the **Moved / renamed** `<details>`, zero new/removed/regressed |
-| [#7 Demo - SARIF upload to Code Scanning](https://github.com/danibram/crap4ts/pull/7) | New `recurringBilling` with CRAP > 100 | Sticky bot comment **plus** inline error annotations on the PR diff, plus a finding in **Security → Code scanning** with `category: crap4ts` |
-
-Each PR is a draft — they exist for the bot to comment on, not for merging. Click the "Files changed" tab to see the seed diff, and scroll the conversation to see the sticky `crap4ts-report` comment kept up-to-date with the latest run.
-
 ## Monorepos
 
 Coverage tools emit file paths in four shapes depending on where they ran:
@@ -254,6 +269,31 @@ From v0.4 the matcher uses a two-level index:
 If multiple relative entries match, the most-specific (longest matching suffix) wins. Cross-machine absolute paths (CI report run on `/home/runner/work/...` queried locally from `/Users/dani/...`) intentionally do not match — silently merging different absolute roots would mask real bugs. A future `--path-prefix` flag will let you remap when you need to.
 
 `crap4ts` also reads the nearest `.gitignore` and adds its patterns to the walker, so generated directories (`dist-temp/`, `build-out/`, etc.) get skipped automatically without you having to repeat them in `crap.config.json`. Negation patterns (`!foo`) and nested `.gitignore` files deeper in the tree are not yet honoured — open an issue if you hit them.
+
+### Workspace discovery
+
+`crap4ts --workspace` auto-detects your workspace config (in this order):
+
+1. `pnpm-workspace.yaml` → the `packages:` list
+2. `package.json#workspaces` → npm / yarn / bun shape, both flat-array and yarn-nested forms
+
+When it finds packages, the scan expands to all of them, every function in the report carries its package label, and `--report-by package` groups the table by package, sorted worst-package-first:
+
+```
+▸ @scope/billing  (12 fns · Σcrap 870)
+   CRAP  COMP  COVERAGE         LOCATION                  FUNCTION
+─  ────  ────  ───────────────  ────────────────────────  ───────────
+▲ 462.0    21  ░░░░░░░░░░  n/a  src/recurring.ts:14       computeBill
+▲ 156.0    12  ████░░░░░░  40%  src/discounts.ts:7        applyCode
+…
+
+▸ @scope/auth     (3 fns · Σcrap 102)
+   …
+```
+
+This is the view monorepo maintainers actually use when triaging: "which team needs to refactor what". The JSON reporter always carries the `package` field when a workspace is active, so dashboards can group too.
+
+Override the auto-detected config with `--workspace-config path/to/pnpm-workspace.yaml` when running from outside the repo root.
 
 ## GitHub Code Scanning (SARIF)
 

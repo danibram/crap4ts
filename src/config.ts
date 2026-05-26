@@ -24,6 +24,16 @@ export type ResolvedConfig = {
   baseline: string | undefined;
   failRegression: boolean;
   epsilon: number;
+  /**
+   * Monorepo workspace discovery.
+   *   - `undefined` → single-package repo (no workspace expansion).
+   *   - `true` → auto-detect (walk up for pnpm-workspace.yaml or
+   *     package.json#workspaces).
+   *   - `string` → path to a workspace config file.
+   */
+  workspace: true | string | undefined;
+  /** Group rows by `package` in the table / markdown reporters. */
+  reportBy: 'function' | 'package';
 };
 
 export type FileConfig = Partial<{
@@ -44,6 +54,8 @@ export type FileConfig = Partial<{
   baseline: string;
   failRegression: boolean;
   epsilon: number;
+  workspace: true | string;
+  reportBy: 'function' | 'package';
 }>;
 
 export const DEFAULT_CONFIG: ResolvedConfig = {
@@ -64,6 +76,8 @@ export const DEFAULT_CONFIG: ResolvedConfig = {
   baseline: undefined,
   failRegression: false,
   epsilon: 0.01,
+  workspace: undefined,
+  reportBy: 'function',
 };
 
 export function loadFileConfig(cwd: string, explicit?: string): FileConfig {
@@ -134,6 +148,8 @@ export function mergeConfig(
       file.failRegression ??
       DEFAULT_CONFIG.failRegression,
     epsilon: cli.epsilon ?? file.epsilon ?? DEFAULT_CONFIG.epsilon,
+    workspace: cli.workspace ?? file.workspace,
+    reportBy: cli.reportBy ?? file.reportBy ?? DEFAULT_CONFIG.reportBy,
   };
 }
 

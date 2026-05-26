@@ -27,6 +27,12 @@ export type ReporterContext = {
    * Code Scanning can show which tool version produced the result.
    */
   toolVersion?: string;
+  /**
+   * Reporter-side grouping. `function` (default) renders one flat ranked
+   * list. `package` groups rows by the function's `package` label and
+   * sorts groups by total CRAP — useful for monorepo dashboards.
+   */
+  reportBy?: 'function' | 'package';
 };
 
 export function render(

@@ -1,5 +1,5 @@
 import { relative } from 'node:path';
-import type { AnalyseResult, DiffEntry } from '../core/types.js';
+import type { AnalyseResult, CrapFunction, DiffEntry } from '../core/types.js';
 import { deltaSign, makeDiffLookup } from './diffLookup.js';
 import type { ReporterContext } from './index.js';
 
@@ -58,25 +58,18 @@ export function renderTable(
   const lookup = ctx.diff ? makeDiffLookup(ctx.diff) : undefined;
   const showDelta = lookup !== undefined;
 
+  if (
+    ctx.reportBy === 'package' &&
+    top.some((fn) => fn.package !== undefined)
+  ) {
+    return renderByPackage(lines, top, ctx, lookup, showDelta);
+  }
+
   const headers = showDelta
     ? ['', 'CRAP', 'Δ', 'COMP', 'COVERAGE', 'LOCATION', 'FUNCTION']
     : ['', 'CRAP', 'COMP', 'COVERAGE', 'LOCATION', 'FUNCTION'];
 
-  const rows = top.map((fn) => {
-    const entry = lookup?.(fn);
-    const base = [
-      statusIcon(fn.crap, ctx.threshold, ctx.failOn, entry),
-      fn.crap.toFixed(1),
-    ];
-    const tail = [
-      String(fn.complexity),
-      coverageCell(fn.coverage, fn.coverageMissing),
-      `${relative(cwd, fn.file)}:${fn.startLine}`,
-      fn.name,
-    ];
-    if (showDelta) return [...base, deltaCell(entry), ...tail];
-    return [...base, ...tail];
-  });
+  const rows = top.map((fn) => rowFor(fn, ctx, lookup?.(fn), showDelta, cwd));
 
   // Visible width — block characters render as one column in monospace fonts.
   const widths = headers.map((h, i) =>
@@ -100,6 +93,90 @@ export function renderTable(
   lines.push(formatRow(widths.map((w) => '─'.repeat(w))));
   for (const row of rows) lines.push(formatRow(row));
   return lines.join('\n');
+}
+
+/**
+ * Render the table grouped by workspace package. Sorts packages by their
+ * sum-of-CRAP (worst first) — that's the lens monorepo maintainers actually
+ * use when deciding "which team needs to refactor". Within each package
+ * functions are still sorted by CRAP descending.
+ */
+function renderByPackage(
+  lines: string[],
+  top: CrapFunction[],
+  ctx: ReporterContext,
+  lookup: ((fn: CrapFunction) => DiffEntry | undefined) | undefined,
+  showDelta: boolean,
+): string {
+  const cwd = process.cwd();
+  const groups = new Map<string, CrapFunction[]>();
+  for (const fn of top) {
+    const key = fn.package ?? '(no package)';
+    const arr = groups.get(key);
+    if (arr) arr.push(fn);
+    else groups.set(key, [fn]);
+  }
+
+  const orderedGroups = [...groups.entries()].sort((a, b) => {
+    const sumA = a[1].reduce((s, fn) => s + fn.crap, 0);
+    const sumB = b[1].reduce((s, fn) => s + fn.crap, 0);
+    return sumB - sumA;
+  });
+
+  const headers = showDelta
+    ? ['', 'CRAP', 'Δ', 'COMP', 'COVERAGE', 'LOCATION', 'FUNCTION']
+    : ['', 'CRAP', 'COMP', 'COVERAGE', 'LOCATION', 'FUNCTION'];
+
+  const allRows = top.map((fn) =>
+    rowFor(fn, ctx, lookup?.(fn), showDelta, cwd),
+  );
+  const widths = headers.map((h, i) =>
+    Math.max(visibleWidth(h), ...allRows.map((r) => visibleWidth(r[i]!))),
+  );
+  const ALIGN_RIGHT = showDelta ? new Set([1, 2, 3]) : new Set([1, 2]);
+  const formatRow = (cells: string[]) =>
+    cells
+      .map((cell, i) => {
+        const gap = widths[i]! - visibleWidth(cell);
+        if (gap <= 0) return cell;
+        return ALIGN_RIGHT.has(i)
+          ? ' '.repeat(gap) + cell
+          : cell + ' '.repeat(gap);
+      })
+      .join('  ');
+
+  for (const [pkg, fns] of orderedGroups) {
+    const total = fns.reduce((s, fn) => s + fn.crap, 0);
+    lines.push('');
+    lines.push(`▸ ${pkg}  (${fns.length} fns · Σcrap ${total.toFixed(0)})`);
+    lines.push(formatRow(headers));
+    lines.push(formatRow(widths.map((w) => '─'.repeat(w))));
+    for (const fn of fns) {
+      lines.push(formatRow(rowFor(fn, ctx, lookup?.(fn), showDelta, cwd)));
+    }
+  }
+  return lines.join('\n');
+}
+
+function rowFor(
+  fn: CrapFunction,
+  ctx: ReporterContext,
+  entry: DiffEntry | undefined,
+  showDelta: boolean,
+  cwd: string,
+): string[] {
+  const base = [
+    statusIcon(fn.crap, ctx.threshold, ctx.failOn, entry),
+    fn.crap.toFixed(1),
+  ];
+  const tail = [
+    String(fn.complexity),
+    coverageCell(fn.coverage, fn.coverageMissing),
+    `${relative(cwd, fn.file)}:${fn.startLine}`,
+    fn.name,
+  ];
+  if (showDelta) return [...base, deltaCell(entry), ...tail];
+  return [...base, ...tail];
 }
 
 function statusIcon(

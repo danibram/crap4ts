@@ -89,6 +89,7 @@ export function renderJson(
             coverageMissing: fn.coverageMissing,
             crap: fn.crap,
             hash: fn.hash,
+            ...(fn.package ? { package: fn.package } : {}),
           })),
         }),
   };

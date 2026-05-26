@@ -1,0 +1,230 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://raw.githubusercontent.com/danibram/crap4ts/main/schemas/report-v1.json",
+  "title": "crap4ts JSON report (envelope v1)",
+  "description": "Shape of the JSON output emitted by `crap4ts --reporter json`. Stable across minor versions of crap4ts at the same envelope version. Consumed by --baseline diffs and by external dashboards / CI scripts.",
+  "type": "object",
+  "required": [
+    "version",
+    "generatedAt",
+    "filesScanned",
+    "threshold",
+    "totals"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "$schema": {
+      "type": "string",
+      "format": "uri",
+      "description": "Pointer to this schema. Optional but always emitted."
+    },
+    "version": {
+      "type": "string",
+      "const": "1",
+      "description": "Envelope schema version. v0.3+ emits \"1\"."
+    },
+    "generatedAt": {
+      "type": "string",
+      "format": "date-time",
+      "description": "ISO-8601 timestamp the report was generated at."
+    },
+    "filesScanned": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "coverage": {
+      "oneOf": [
+        { "type": "null" },
+        {
+          "type": "object",
+          "required": ["source", "format"],
+          "additionalProperties": false,
+          "properties": {
+            "source": {
+              "type": "string",
+              "description": "Path (relative to cwd) of the coverage file consumed."
+            },
+            "format": {
+              "type": ["string", "null"],
+              "enum": ["v8", "istanbul", "lcov", null],
+              "description": "Coverage format auto-detected or forced by --coverage-format."
+            }
+          }
+        }
+      ]
+    },
+    "threshold": {
+      "type": "number",
+      "description": "Value of --threshold at the time the report was generated."
+    },
+    "failOn": {
+      "type": ["number", "null"]
+    },
+    "totals": {
+      "type": "object",
+      "required": ["functions", "aboveThreshold", "aboveThresholdPct"],
+      "additionalProperties": false,
+      "properties": {
+        "functions": { "type": "integer", "minimum": 0 },
+        "aboveThreshold": { "type": "integer", "minimum": 0 },
+        "aboveThresholdPct": { "type": "number", "minimum": 0, "maximum": 100 },
+        "worst": {
+          "oneOf": [
+            { "type": "null" },
+            {
+              "type": "object",
+              "required": ["name", "file", "line", "crap"],
+              "additionalProperties": false,
+              "properties": {
+                "name": { "type": "string" },
+                "file": { "type": "string" },
+                "line": { "type": "integer", "minimum": 1 },
+                "crap": { "type": "number", "minimum": 0 }
+              }
+            }
+          ]
+        }
+      }
+    },
+    "diff": {
+      "type": "object",
+      "description": "Present only when --baseline was supplied.",
+      "required": ["epsilon", "summary"],
+      "additionalProperties": false,
+      "properties": {
+        "baseline": { "type": ["string", "null"] },
+        "epsilon": { "type": "number", "minimum": 0 },
+        "summary": {
+          "type": "object",
+          "required": [
+            "new",
+            "removed",
+            "moved",
+            "improved",
+            "regressed",
+            "unchanged",
+            "regressions"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "new": { "type": "integer", "minimum": 0 },
+            "removed": { "type": "integer", "minimum": 0 },
+            "moved": { "type": "integer", "minimum": 0 },
+            "improved": { "type": "integer", "minimum": 0 },
+            "regressed": { "type": "integer", "minimum": 0 },
+            "unchanged": { "type": "integer", "minimum": 0 },
+            "regressions": {
+              "type": "integer",
+              "minimum": 0,
+              "description": "Alias for `regressed`. Named loudly because CI keys on it."
+            }
+          }
+        },
+        "entries": {
+          "type": "array",
+          "description": "Omitted when --summary is set.",
+          "items": {
+            "type": "object",
+            "required": ["status", "delta"],
+            "additionalProperties": false,
+            "properties": {
+              "status": {
+                "type": "string",
+                "enum": [
+                  "new",
+                  "removed",
+                  "moved",
+                  "unchanged",
+                  "improved",
+                  "regressed"
+                ]
+              },
+              "delta": { "type": "number" },
+              "current": {
+                "oneOf": [
+                  { "type": "null" },
+                  {
+                    "type": "object",
+                    "required": ["file", "name", "startLine", "crap"],
+                    "additionalProperties": false,
+                    "properties": {
+                      "file": { "type": "string" },
+                      "name": { "type": "string" },
+                      "startLine": { "type": "integer", "minimum": 1 },
+                      "crap": { "type": "number" }
+                    }
+                  }
+                ]
+              },
+              "baseline": {
+                "oneOf": [
+                  { "type": "null" },
+                  {
+                    "type": "object",
+                    "required": ["file", "name", "startLine", "crap"],
+                    "additionalProperties": false,
+                    "properties": {
+                      "file": { "type": "string" },
+                      "name": { "type": "string" },
+                      "startLine": { "type": "integer", "minimum": 1 },
+                      "crap": { "type": "number" }
+                    }
+                  }
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    "functions": {
+      "type": "array",
+      "description": "Omitted when --summary is set. Sorted by descending crap.",
+      "items": {
+        "type": "object",
+        "required": [
+          "file",
+          "name",
+          "startLine",
+          "endLine",
+          "complexity",
+          "crap",
+          "coverageMissing",
+          "hash"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "file": {
+            "type": "string",
+            "description": "Path relative to the cwd the report was generated from."
+          },
+          "name": {
+            "type": "string",
+            "description": "Function name, or `<anonymous>` when not recoverable."
+          },
+          "startLine": { "type": "integer", "minimum": 1 },
+          "endLine": { "type": "integer", "minimum": 1 },
+          "complexity": { "type": "integer", "minimum": 1 },
+          "coverage": {
+            "oneOf": [
+              { "type": "null" },
+              { "type": "number", "minimum": 0, "maximum": 100 }
+            ],
+            "description": "Statement coverage % within the function range. Null when coverage data is missing — `coverageMissing` carries the same information for compatibility."
+          },
+          "coverageMissing": { "type": "boolean" },
+          "crap": { "type": "number", "minimum": 0 },
+          "hash": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{16}$",
+            "description": "SHA-256 (first 16 hex chars) of the function body. Stable identity key used by --baseline for move detection."
+          },
+          "package": {
+            "type": "string",
+            "description": "Workspace package name. Present only when --workspace was active during the scan."
+          }
+        }
+      }
+    }
+  }
+}

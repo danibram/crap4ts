@@ -30,6 +30,11 @@ export type CrapFunction = {
    * moves (same body, different file).
    */
   hash: string;
+  /**
+   * Workspace package name the function lives in. Only populated when
+   * --workspace was active during the scan; absent in single-package repos.
+   */
+  package?: string;
 };
 
 export type AnalyseOptions = {
@@ -40,6 +45,12 @@ export type AnalyseOptions = {
   tsconfigPath?: string;
   /** How to treat functions with no coverage data. Default: 'pessimistic'. */
   missing?: MissingPolicy;
+  /**
+   * When set, every function's enclosing workspace package is recorded on
+   * the CrapFunction. The CLI populates this via --workspace; library users
+   * can pass it directly.
+   */
+  workspacePackages?: Array<{ name: string; path: string }>;
 };
 
 export type AnalyseResult = {
