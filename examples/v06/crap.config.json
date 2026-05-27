@@ -1,0 +1,8 @@
+{
+  "include": ["."],
+  "threshold": 30,
+  "failOn": 50,
+  "overrides": [
+    { "paths": "legacy/**", "failOn": 500 }
+  ]
+}
