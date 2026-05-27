@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 import { relative } from 'node:path';
 import type { AnalyseResult, CrapFunction } from '../core/types.js';
-import type { ReporterContext } from './index.js';
+import { type ReporterContext, thresholdsFor } from './index.js';
 
 /**
  * SARIF 2.1.0 envelope — the format GitHub Code Scanning ingests via
@@ -22,7 +22,10 @@ export function renderSarif(
   ctx: ReporterContext,
 ): string {
   const cwd = process.cwd();
-  const flagged = result.functions.filter((fn) => fn.crap > ctx.threshold);
+  // Flag anything over its *effective* threshold (per-path overrides applied).
+  const flagged = result.functions.filter(
+    (fn) => fn.crap > thresholdsFor(ctx, fn.file).threshold,
+  );
 
   const rules = [
     {
@@ -74,7 +77,8 @@ function buildResult(
   ctx: ReporterContext,
   cwd: string,
 ): Record<string, unknown> {
-  const isError = ctx.failOn !== undefined && fn.crap > ctx.failOn;
+  const { threshold, failOn } = thresholdsFor(ctx, fn.file);
+  const isError = failOn !== undefined && fn.crap > failOn;
   const ruleId = isError ? 'crap4ts/fail-on' : 'crap4ts/threshold';
   const level = isError ? 'error' : 'warning';
   const file = relative(cwd, fn.file);
@@ -92,7 +96,7 @@ function buildResult(
     level,
     message: {
       text: `${fn.name}: CRAP ${fn.crap.toFixed(1)} (complexity ${fn.complexity}, coverage ${cov}). Above ${
-        isError ? `--fail-on=${ctx.failOn}` : `--threshold=${ctx.threshold}`
+        isError ? `fail-on=${failOn}` : `threshold=${threshold}`
       }.`,
     },
     locations: [

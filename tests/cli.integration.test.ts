@@ -80,7 +80,7 @@ describe('CLI', () => {
     // tangled has comp ~7, CRAP ~56 with 0% coverage
     const r = runCli(['.', '--fail-on', '10'], dir);
     expect(r.status).toBe(1);
-    expect(r.stderr).toContain('exceed --fail-on=10');
+    expect(r.stderr).toContain('exceed their fail-on threshold');
   });
 
   it('--fail-on exits 0 when the threshold is high enough', () => {

@@ -1,4 +1,5 @@
 import type { AnalyseResult, DiffResult, ReporterName } from '../core/types.js';
+import { renderEslint } from './eslint.js';
 import { renderGithub } from './github.js';
 import { renderJson } from './json.js';
 import { renderMarkdown } from './markdown.js';
@@ -33,7 +34,29 @@ export type ReporterContext = {
    * sorts groups by total CRAP — useful for monorepo dashboards.
    */
   reportBy?: 'function' | 'package';
+  /**
+   * Per-file effective threshold/failOn (per-path overrides applied). When
+   * absent, reporters fall back to the flat ctx.threshold / ctx.failOn.
+   * Use `thresholdsFor(ctx, file)` rather than reading this directly.
+   */
+  thresholdFor?: (file: string) => {
+    threshold: number;
+    failOn: number | undefined;
+  };
 };
+
+/**
+ * Resolve the effective threshold/failOn for a file, honouring per-path
+ * overrides when the CLI supplied a resolver, else the flat context values.
+ */
+export function thresholdsFor(
+  ctx: ReporterContext,
+  file: string,
+): { threshold: number; failOn: number | undefined } {
+  return (
+    ctx.thresholdFor?.(file) ?? { threshold: ctx.threshold, failOn: ctx.failOn }
+  );
+}
 
 export function render(
   reporter: ReporterName,
@@ -51,6 +74,8 @@ export function render(
       return renderPrComment(result, ctx);
     case 'sarif':
       return renderSarif(result, ctx);
+    case 'eslint':
+      return renderEslint(result, ctx);
     case 'table':
       return renderTable(result, ctx);
   }

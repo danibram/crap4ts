@@ -38,6 +38,11 @@ const FUNCTION_KINDS = new Set<SyntaxKind>([
 ]);
 
 export function extractFunctions(source: SourceFile): ExtractedFunction[] {
+  // `/* crap4ts-disable-file */` (or `// crap4ts-disable`) anywhere in the
+  // first ~10 lines suppresses the whole file — the in-source equivalent of
+  // adding the file to --ignore.
+  if (isFileDisabled(source)) return [];
+
   const out: ExtractedFunction[] = [];
 
   source.forEachDescendant((node) => {
@@ -50,6 +55,11 @@ export function extractFunctions(source: SourceFile): ExtractedFunction[] {
     // signatures that have no implementation.
     if (!hasBody(fn)) return;
 
+    // `/* crap4ts-disable-next-function */` (or -next-line) on the line(s)
+    // immediately above suppresses just this function — surgical opt-out
+    // without touching config or --allow.
+    if (hasDisableComment(fn)) return;
+
     const name = resolveName(fn);
     const start = fn.getStartLineNumber();
     const end = fn.getEndLineNumber();
@@ -57,6 +67,30 @@ export function extractFunctions(source: SourceFile): ExtractedFunction[] {
   });
 
   return out;
+}
+
+const DISABLE_NEXT = /crap4ts-disable-(next-function|next-line)/;
+// Matches `crap4ts-disable` or `crap4ts-disable-file` but NOT
+// `crap4ts-disable-next-*` (negative lookahead on a trailing hyphen/word char).
+const DISABLE_FILE = /crap4ts-disable(-file)?(?![-\w])/;
+
+function hasDisableComment(fn: FunctionLike): boolean {
+  // Leading comments attach to the outermost declaration. For arrow/function
+  // expressions assigned to a variable, the comment sits on the variable
+  // statement, so we check the nearest statement ancestor too.
+  const targets = [fn, fn.getParent(), fn.getParent()?.getParent()];
+  for (const t of targets) {
+    if (!t) continue;
+    for (const range of t.getLeadingCommentRanges()) {
+      if (DISABLE_NEXT.test(range.getText())) return true;
+    }
+  }
+  return false;
+}
+
+function isFileDisabled(source: SourceFile): boolean {
+  // Cheap scan of the first 400 chars — disable-file pragmas live at the top.
+  return DISABLE_FILE.test(source.getFullText().slice(0, 400));
 }
 
 function hasBody(fn: FunctionLike): boolean {
@@ -71,7 +105,10 @@ function hasBody(fn: FunctionLike): boolean {
 }
 
 function resolveName(fn: FunctionLike): string {
-  if (Node.isConstructorDeclaration(fn)) return 'constructor';
+  const scope = enclosingClassName(fn);
+  const prefix = scope ? `${scope}.` : '';
+
+  if (Node.isConstructorDeclaration(fn)) return `${prefix}constructor`;
 
   // Named functions / methods / accessors expose getName().
   if (
@@ -81,7 +118,14 @@ function resolveName(fn: FunctionLike): string {
     Node.isSetAccessorDeclaration(fn)
   ) {
     const name = fn.getName();
-    if (name) return decorateAccessor(fn, name);
+    // Only methods/accessors get the class prefix; a plain function
+    // declaration nested in a class body (rare) keeps its bare name.
+    if (name) {
+      const decorated = decorateAccessor(fn, name);
+      return Node.isFunctionDeclaration(fn)
+        ? decorated
+        : `${prefix}${decorated}`;
+    }
   }
 
   // FunctionExpression may be named: `const x = function foo() {}` → "foo".
@@ -93,6 +137,31 @@ function resolveName(fn: FunctionLike): string {
   // Anonymous arrow / function expression — try to recover a useful name from
   // the parent (variable declaration, property assignment, etc).
   return nameFromContext(fn);
+}
+
+/**
+ * Walk up to the nearest class declaration/expression and return its name.
+ * Qualifying `render` as `UserCard.render` makes reports readable and keeps
+ * two same-named methods in one file distinct in the --baseline diff (they
+ * used to collide on the `file::name` key). Anonymous classes fall back to
+ * the variable they're assigned to; failing that, no prefix.
+ */
+function enclosingClassName(fn: FunctionLike): string | undefined {
+  // Methods/accessors are direct children of a class body, so the nearest
+  // class ancestor is unambiguously theirs (true for nested classes too).
+  let node: Node | undefined = fn.getParent();
+  while (node) {
+    if (Node.isClassDeclaration(node) || Node.isClassExpression(node)) {
+      const name = node.getName();
+      if (name) return name;
+      // `const Foo = class { ... }` — recover the binding name.
+      const parent = node.getParent();
+      if (parent && Node.isVariableDeclaration(parent)) return parent.getName();
+      return undefined;
+    }
+    node = node.getParent();
+  }
+  return undefined;
 }
 
 function decorateAccessor(fn: FunctionLike, name: string): string {

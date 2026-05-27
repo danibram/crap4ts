@@ -84,6 +84,15 @@ crap4ts src/ --baseline crap-main.json --reporter pr-comment > comment.md
 
 # Monorepo overview, grouped by package
 crap4ts --workspace --report-by package
+
+# Hotspots: rank by CRAP × git churn (risky AND frequently-changed)
+crap4ts --hotspots --since 90d
+
+# Cognitive complexity instead of cyclomatic (nesting-weighted)
+crap4ts --complexity cognitive
+
+# Merge per-package coverage before scanning a monorepo
+crap4ts merge-coverage 'packages/*/coverage/coverage-final.json' -o merged.json
 ```
 
 ## Output
@@ -113,6 +122,61 @@ Status icons: `✗` exceeds `--fail-on`, `▲` exceeds `--threshold`, `✓` clea
 | `github`     | `::warning::` / `::error::` annotations for PRs   |
 | `pr-comment` | Opinionated PR-bot comment with sticky marker     |
 | `sarif`      | SARIF 2.1.0 → GitHub Code Scanning / VS Code      |
+| `eslint`     | ESLint JSON → reviewdog & ESLint-aware tooling    |
+
+## Hotspots (v0.6)
+
+A high CRAP score on a function nobody touches is low-priority — you're not going to break it because you're not editing it. The functions that actually bite are the ones that are **both risky and changing constantly**. That's the hotspot quadrant.
+
+```bash
+crap4ts --hotspots --since 90d
+```
+
+```text
+Scanned 25 files. 175 functions analysed.
+Hotspots: CRAP × commits since 90 days ago (HOT column, sorted).
+
+     CRAP   HOT  CHURN  COMP  COVERAGE       LOCATION              FUNCTION
+─  ──────  ────  ─────  ────  ─────────────  ────────────────────  ───────────────
+▲   756.0  6804      9    27  ░░░░░░░░░░ n/a  src/cli.ts:387        buildCliConfig
+▲  1560.0  6240      4    39  ░░░░░░░░░░ n/a  src/config.ts:137     mergeConfig
+▲   650.0  5850      9    25  ░░░░░░░░░░ n/a  src/cli.ts:141        run
+```
+
+`HOT = CRAP × CHURN`, where churn is the number of commits touching the file in the window. Note how `buildCliConfig` (9 commits) outranks `mergeConfig` despite a lower raw CRAP — it's edited more than twice as often, so it's the riskier place to be. `--since` accepts `90d`, `6w`, `3m`, `1y`, or any git date expression (default `90d`). Outside a git repo, churn degrades to 0 (no crash).
+
+## Cognitive complexity (v0.6)
+
+The classic CRAP metric uses cyclomatic complexity, which counts independent paths but treats a flat `switch` the same as a deeply-nested pile of `if`s. [Cognitive complexity](https://www.sonarsource.com/docs/CognitiveComplexity.pdf) (the metric Biome and SonarJS moved to) weights nesting and reads closer to "how hard is this for a human to follow":
+
+```bash
+crap4ts --complexity cognitive
+```
+
+- Nesting is penalised: an `if` inside two loops costs more than a top-level one.
+- `else` / `else if` are flat (+1, no nesting penalty).
+- A boolean run counts once (`a && b && c` = +1); alternating operators add more (`a && b || c` = +2).
+- `switch` is +1 total, not once-per-case.
+
+This is a crap4ts extension — canonical CRAP is defined over cyclomatic — but cognitive tracks perceived risk better for deeply nested code. Recursion's +1 isn't modelled yet. The chosen metric is recorded as `complexityMetric` in the JSON envelope.
+
+## Suppressing functions
+
+Three levels, increasingly surgical:
+
+| Mechanism | Scope | Where |
+|-----------|-------|-------|
+| `--ignore <glob>` | File not parsed at all | CLI / config |
+| `--allow <glob>` | File parsed, function hidden from report | CLI / config |
+| `/* crap4ts-disable-next-function */` | One function | In source |
+| `/* crap4ts-disable-file */` | Whole file | In source (near top) |
+
+```ts
+/* crap4ts-disable-next-function */
+export function generatedMonster(/* ... */) { /* gnarly but generated */ }
+```
+
+The in-source comments are the surgical option — they live next to the code they exempt, so the exemption is visible in review and travels with the file.
 
 ## Configuration
 
@@ -135,9 +199,18 @@ Status icons: `✗` exceeds `--fail-on`, `▲` exceeds `--threshold`, `✓` clea
   "tsconfig": "./tsconfig.json",
   "baseline": "./crap-main.json",
   "failRegression": true,
-  "epsilon": 0.01
+  "epsilon": 0.01,
+  "complexity": "cyclomatic",
+  "overrides": [
+    { "paths": "legacy/**", "threshold": 200, "failOn": 500 },
+    { "paths": ["src/generated/**", "**/*.gen.ts"], "failOn": null }
+  ]
 }
 ```
+
+### Per-path overrides
+
+`overrides` lets you relax (or tighten) the gate for specific paths without raising the global bar — the key to adopting crap4ts on a codebase that already has high-CRAP corners. Each entry matches by glob and overrides `threshold` and/or `failOn` for files it matches. Resolution is **last-match-wins** (ESLint `overrides` semantics): later entries beat earlier ones. `"failOn": null` explicitly clears the gate for those paths (distinct from omitting it, which inherits the global). So in the example above: `legacy/**` may reach CRAP 500 before failing, generated files never fail the gate, and everything else holds the line at the global `failOn: 100`.
 
 ### CLI flags
 
@@ -306,6 +379,17 @@ When it finds packages, the scan expands to all of them, every function in the r
 This is the view monorepo maintainers actually use when triaging: "which team needs to refactor what". The JSON reporter always carries the `package` field when a workspace is active, so dashboards can group too.
 
 Override the auto-detected config with `--workspace-config path/to/pnpm-workspace.yaml` when running from outside the repo root.
+
+### Merging per-package coverage
+
+Monorepos that run tests per package (Turbo, Nx, parallel CI) emit one `coverage-final.json` per package, but crap4ts consumes a single coverage file. `merge-coverage` combines them — union of files, summing per-statement hit counts where a file appears in more than one report:
+
+```bash
+crap4ts merge-coverage 'packages/*/coverage/coverage-final.json' -o coverage/merged.json
+crap4ts --workspace --coverage coverage/merged.json
+```
+
+JSON (istanbul / v8) only for now — the per-package-output pattern almost always emits JSON. LCOV merge is deferred.
 
 ## GitHub Code Scanning (SARIF)
 

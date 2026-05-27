@@ -1,6 +1,6 @@
 import { relative } from 'node:path';
 import type { AnalyseResult } from '../core/types.js';
-import type { ReporterContext } from './index.js';
+import { type ReporterContext, thresholdsFor } from './index.js';
 
 /**
  * Emits GitHub Actions workflow commands so the runner annotates the PR
@@ -18,13 +18,14 @@ export function renderGithub(
   const lines: string[] = [];
 
   for (const fn of result.functions) {
-    if (fn.crap <= ctx.threshold) continue;
-    const isError = ctx.failOn !== undefined && fn.crap > ctx.failOn;
+    const { threshold, failOn } = thresholdsFor(ctx, fn.file);
+    if (fn.crap <= threshold) continue;
+    const isError = failOn !== undefined && fn.crap > failOn;
     const level = isError ? 'error' : 'warning';
     const file = relative(cwd, fn.file);
     const cov = fn.coverageMissing ? 'n/a' : `${fn.coverage.toFixed(0)}%`;
     const title = `C.R.A.P. ${fn.crap.toFixed(1)} (comp ${fn.complexity}, cov ${cov})`;
-    const message = `${fn.name} exceeds CRAP threshold (${ctx.threshold}).`;
+    const message = `${fn.name} exceeds CRAP threshold (${threshold}).`;
     lines.push(
       `::${level} file=${file},line=${fn.startLine},endLine=${fn.endLine},title=${encode(title)}::${encode(message)}`,
     );

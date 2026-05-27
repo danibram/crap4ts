@@ -139,10 +139,11 @@ describe('cyclomaticComplexity', () => {
         }
       }
     `);
-    expect(result.constructor).toBe(2);
-    expect(result['get doubled']).toBe(1);
-    expect(result['set doubled']).toBe(2);
-    expect(result.compute).toBe(3); // 1 + && + ?:
+    // Method/accessor/constructor names are now class-qualified.
+    expect(result['Foo.constructor']).toBe(2);
+    expect(result['Foo.get doubled']).toBe(1);
+    expect(result['Foo.set doubled']).toBe(2);
+    expect(result['Foo.compute']).toBe(3); // 1 + && + ?:
   });
 
   it('ignores ambient / overload signatures without bodies', () => {

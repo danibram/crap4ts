@@ -4,6 +4,8 @@ import { extname, join, resolve } from 'node:path';
 import { Project } from 'ts-morph';
 import type { CoverageProvider } from '../coverage/index.js';
 import { loadCoverage } from '../coverage/index.js';
+import { loadChurn } from './churn.js';
+import { cognitiveComplexity } from './cognitive.js';
 import { cyclomaticComplexity } from './complexity.js';
 import { crap } from './crap.js';
 import { extractFunctions } from './functions.js';
@@ -11,6 +13,7 @@ import { loadGitignoreGlobs } from './gitignore.js';
 import type {
   AnalyseOptions,
   AnalyseResult,
+  ComplexityMetric,
   CrapFunction,
   MissingPolicy,
 } from './types.js';
@@ -63,7 +66,14 @@ export async function analyse(options: AnalyseOptions): Promise<AnalyseResult> {
   const project = createProject(options.tsconfigPath);
   const functions: CrapFunction[] = [];
   const missing: MissingPolicy = options.missing ?? 'pessimistic';
+  const metric: ComplexityMetric = options.complexityMetric ?? 'cyclomatic';
+  const measureComplexity =
+    metric === 'cognitive' ? cognitiveComplexity : cyclomaticComplexity;
   const workspacePackages = options.workspacePackages ?? [];
+  // One git call up-front builds the file→commit-count map for the window.
+  const churn = options.churnSince
+    ? loadChurn(includePaths[0] ?? process.cwd(), options.churnSince)
+    : undefined;
 
   for (const filePath of filePaths) {
     const source = project.addSourceFileAtPathIfExists(filePath);
@@ -71,7 +81,7 @@ export async function analyse(options: AnalyseOptions): Promise<AnalyseResult> {
     try {
       const extracted = extractFunctions(source);
       for (const fn of extracted) {
-        const complexity = cyclomaticComplexity(fn.node);
+        const complexity = measureComplexity(fn.node);
         const measured = coverage
           ? measuredCoverage(coverage, filePath, fn.startLine, fn.endLine)
           : undefined;
@@ -89,6 +99,8 @@ export async function analyse(options: AnalyseOptions): Promise<AnalyseResult> {
           workspacePackages.length > 0
             ? resolvePackageForFile(filePath, workspacePackages)
             : undefined;
+        const crapScore = crap(complexity, cov);
+        const churnCount = churn ? churn.countFor(filePath) : undefined;
         functions.push({
           file: filePath,
           name: fn.name,
@@ -96,10 +108,13 @@ export async function analyse(options: AnalyseOptions): Promise<AnalyseResult> {
           endLine: fn.endLine,
           complexity,
           coverage: cov,
-          crap: crap(complexity, cov),
+          crap: crapScore,
           coverageMissing,
           hash: hashFunctionBody(fn.node.getText()),
           ...(pkg ? { package: pkg } : {}),
+          ...(churnCount !== undefined
+            ? { churn: churnCount, hotspot: crapScore * churnCount }
+            : {}),
         });
       }
     } finally {
@@ -112,11 +127,13 @@ export async function analyse(options: AnalyseOptions): Promise<AnalyseResult> {
   const result: AnalyseResult = {
     functions,
     filesScanned: filePaths.length,
+    complexityMetric: metric,
   };
   if (coverage) {
     result.coverageSource = coverage.source;
     result.coverageFormat = coverage.format;
   }
+  if (options.churnSince) result.churnSince = options.churnSince;
   return result;
 }
 

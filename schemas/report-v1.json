@@ -60,6 +60,15 @@
     "failOn": {
       "type": ["number", "null"]
     },
+    "complexityMetric": {
+      "type": "string",
+      "enum": ["cyclomatic", "cognitive"],
+      "description": "Which complexity metric fed the CRAP formula (--complexity)."
+    },
+    "churnSince": {
+      "type": "string",
+      "description": "Git churn window echoed when --hotspots was active."
+    },
     "totals": {
       "type": "object",
       "required": ["functions", "aboveThreshold", "aboveThresholdPct"],
@@ -204,7 +213,11 @@
           },
           "startLine": { "type": "integer", "minimum": 1 },
           "endLine": { "type": "integer", "minimum": 1 },
-          "complexity": { "type": "integer", "minimum": 1 },
+          "complexity": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "Cyclomatic (≥1) or cognitive (≥0) complexity, per complexityMetric."
+          },
           "coverage": {
             "oneOf": [
               { "type": "null" },
@@ -222,6 +235,16 @@
           "package": {
             "type": "string",
             "description": "Workspace package name. Present only when --workspace was active during the scan."
+          },
+          "churn": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "Commits touching this file in the --since window. Present only in --hotspots mode."
+          },
+          "hotspot": {
+            "type": "number",
+            "minimum": 0,
+            "description": "crap × churn. Present only in --hotspots mode."
           }
         }
       }

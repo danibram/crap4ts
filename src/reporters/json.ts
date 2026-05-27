@@ -1,6 +1,6 @@
 import { relative } from 'node:path';
 import type { AnalyseResult } from '../core/types.js';
-import type { ReporterContext } from './index.js';
+import { type ReporterContext, thresholdsFor } from './index.js';
 
 const SCHEMA_URL =
   'https://raw.githubusercontent.com/danibram/crap4ts/main/schemas/report-v1.json';
@@ -11,7 +11,9 @@ export function renderJson(
 ): string {
   const cwd = process.cwd();
   const total = result.functions.length;
-  const crappy = result.functions.filter((f) => f.crap > ctx.threshold).length;
+  const crappy = result.functions.filter(
+    (f) => f.crap > thresholdsFor(ctx, f.file).threshold,
+  ).length;
   const worst = result.functions[0];
 
   // Build the diff block once so the envelope construction below stays flat.
@@ -62,6 +64,8 @@ export function renderJson(
       : null,
     threshold: ctx.threshold,
     failOn: ctx.failOn ?? null,
+    complexityMetric: result.complexityMetric,
+    ...(result.churnSince ? { churnSince: result.churnSince } : {}),
     totals: {
       functions: total,
       aboveThreshold: crappy,
@@ -90,6 +94,9 @@ export function renderJson(
             crap: fn.crap,
             hash: fn.hash,
             ...(fn.package ? { package: fn.package } : {}),
+            ...(fn.churn !== undefined
+              ? { churn: fn.churn, hotspot: fn.hotspot }
+              : {}),
           })),
         }),
   };

@@ -4,9 +4,12 @@ import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
 import { type ResolvedConfig, loadFileConfig, mergeConfig } from './config.js';
 import { analyse } from './core/analyse.js';
+import { normaliseSince } from './core/churn.js';
 import { diffAgainstBaseline, loadBaseline } from './core/diff.js';
+import { makeThresholdResolver } from './core/thresholds.js';
 import type {
   AnalyseOptions,
+  ComplexityMetric,
   CoverageFormat,
   DiffResult,
   MissingPolicy,
@@ -14,6 +17,7 @@ import type {
 } from './core/types.js';
 import { discoverWorkspace } from './core/workspace.js';
 import { runInit } from './init.js';
+import { runMergeCoverage } from './mergeCoverage.js';
 import { render } from './reporters/index.js';
 
 const HELP = `crap4ts — C.R.A.P. (Change Risk Analysis & Predictions) index for TypeScript.
@@ -21,6 +25,7 @@ const HELP = `crap4ts — C.R.A.P. (Change Risk Analysis & Predictions) index fo
 Usage:
   crap4ts [paths...] [options]
   crap4ts init [--workflow] [--runner <vitest|jest|bun>] [--force]
+  crap4ts merge-coverage <glob...> [-o <file>]
 
 Filtering:
   -i, --ignore <glob>         Skip files matching glob (repeatable). Excluded
@@ -28,12 +33,19 @@ Filtering:
       --allow <glob>          Parse the file but hide matching functions from
                               the report (repeatable). Path glob if it contains
                               '/' or '**'; otherwise matches function names.
+                              In-source: /* crap4ts-disable-next-function */.
       --min <score>           Hide rows below this CRAP score
       --top <n>               Show only the N worst offenders (default: 50)
 
+Complexity:
+      --complexity <metric>   cyclomatic (default) | cognitive — which metric
+                              feeds the CRAP formula. cognitive weights nesting.
+
 Thresholds:
   -t, --threshold <n>         Score above which a function is flagged (default: 30)
-      --fail-on <n>           Exit 1 if any function exceeds this score
+      --fail-on <n>           Exit 1 if any function exceeds this score.
+                              Per-path overrides live in crap.config.json
+                              ("overrides": [{ paths, threshold, failOn }]).
 
 Coverage:
   -c, --coverage <file>       Path to coverage report
@@ -43,9 +55,16 @@ Coverage:
                                 optimistic  (100%, so CRAP = comp)
                                 skip        (drop the row entirely)
 
+Hotspots:
+      --hotspots              Rank by CRAP × git churn (commits touching the
+                              file in the window). Surfaces risky code you keep
+                              editing.
+      --since <window>        Churn window: 90d | 6w | 3m | 1y or any git date
+                              (default 90d). Implies --hotspots.
+
 Output:
   -r, --reporter <name>       table | json | markdown | github | pr-comment
-                              | sarif (default: table)
+                              | sarif | eslint (default: table)
       --summary               Only print aggregate stats (no per-function table)
   -o, --output <file>         Write to file instead of stdout
 
@@ -85,6 +104,9 @@ Examples:
   crap4ts --baseline main.json --fail-regression            # PR vs main
   crap4ts --reporter pr-comment --baseline main.json        # PR bot comment
   crap4ts --workspace --report-by package                   # monorepo overview
+  crap4ts --hotspots --since 90d                             # crap × churn
+  crap4ts --complexity cognitive                            # nesting-weighted
+  crap4ts merge-coverage 'packages/*/coverage/*.json' -o m.json
   crap4ts --summary                                         # one-liner
 `;
 
@@ -107,6 +129,9 @@ type CliFlags = {
   workspace?: boolean;
   'workspace-config'?: string;
   'report-by'?: string;
+  complexity?: string;
+  hotspots?: boolean;
+  since?: string;
   tsconfig?: string;
   config?: string;
   help?: boolean;
@@ -120,6 +145,9 @@ export async function run(argv: string[]): Promise<number> {
   // a flag that init accepts but the scanner doesn't (or vice versa).
   if (argv[0] === 'init') {
     return runInit(argv.slice(1));
+  }
+  if (argv[0] === 'merge-coverage') {
+    return runMergeCoverage(argv.slice(1));
   }
 
   let values: CliFlags;
@@ -147,18 +175,29 @@ export async function run(argv: string[]): Promise<number> {
     return 0;
   }
 
-  const cliConfig = buildCliConfig(values, positionals);
-  const fileConfig = loadFileConfig(process.cwd(), values.config);
-  const config = mergeConfig(fileConfig, cliConfig);
+  let config: ResolvedConfig;
+  try {
+    const cliConfig = buildCliConfig(values, positionals);
+    const fileConfig = loadFileConfig(process.cwd(), values.config);
+    config = mergeConfig(fileConfig, cliConfig);
+  } catch (err) {
+    // Invalid flag values (bad --complexity, --reporter, --threshold, etc.)
+    // and malformed config files surface here. Exit 2 to match the
+    // parse-error path above rather than crashing with an uncaught throw.
+    process.stderr.write(`crap4ts: ${(err as Error).message}\n`);
+    return 2;
+  }
 
   const options: AnalyseOptions = {
     paths: config.paths,
     ignore: config.ignore,
     coverageFormat: config.coverageFormat,
     missing: config.missing,
+    complexityMetric: config.complexityMetric,
   };
   if (config.coverageFile) options.coverageFile = config.coverageFile;
   if (config.tsconfigPath) options.tsconfigPath = config.tsconfigPath;
+  if (config.hotspotsSince) options.churnSince = config.hotspotsSince;
 
   // Workspace discovery happens before analyse so we can both expand the
   // scan paths (when the user didn't pass any) AND populate the per-function
@@ -223,6 +262,14 @@ export async function run(argv: string[]): Promise<number> {
     return 2;
   }
 
+  // One resolver shared by the reporters (per-row status icons) and the gate
+  // below, so per-path overrides apply consistently to display and CI.
+  const thresholdFor = makeThresholdResolver(
+    config.threshold,
+    config.failOn,
+    config.overrides,
+  );
+
   const ctx: Parameters<typeof render>[2] = {
     threshold: config.threshold,
     failOn: config.failOn,
@@ -230,6 +277,7 @@ export async function run(argv: string[]): Promise<number> {
     summary: config.summary,
     toolVersion: readVersion(),
     reportBy: config.reportBy,
+    thresholdFor,
   };
   if (diff) ctx.diff = diff;
   if (baselineSource) ctx.baselineSource = baselineSource;
@@ -242,17 +290,19 @@ export async function run(argv: string[]): Promise<number> {
     process.stdout.write(final);
   }
 
-  if (config.failOn !== undefined) {
-    // Fail-on is evaluated on the unfiltered set so --allow can't hide
-    // a regression from CI. If you want allow-listed code excluded from
-    // the gate too, use --ignore instead.
-    const breaches = raw.functions.filter((f) => f.crap > config.failOn!);
-    if (breaches.length > 0) {
-      process.stderr.write(
-        `crap4ts: ${breaches.length} function(s) exceed --fail-on=${config.failOn}\n`,
-      );
-      return 1;
-    }
+  // Fail-on gate, evaluated per-function with per-path overrides applied.
+  // Runs on the unfiltered set so --allow / --min can't hide a breach from
+  // CI. A function whose effective failOn is undefined (no global, no
+  // override) simply can't breach.
+  const breaches = raw.functions.filter((f) => {
+    const { failOn } = thresholdFor(f.file);
+    return failOn !== undefined && f.crap > failOn;
+  });
+  if (breaches.length > 0) {
+    process.stderr.write(
+      `crap4ts: ${breaches.length} function(s) exceed their fail-on threshold\n`,
+    );
+    return 1;
   }
   if (config.failRegression && diff && diff.summary.regressions > 0) {
     process.stderr.write(
@@ -334,6 +384,9 @@ const OPTIONS = {
   workspace: { type: 'boolean' },
   'workspace-config': { type: 'string' },
   'report-by': { type: 'string' },
+  complexity: { type: 'string' },
+  hotspots: { type: 'boolean' },
+  since: { type: 'string' },
   tsconfig: { type: 'string' },
   config: { type: 'string' },
   help: { type: 'boolean', short: 'h' },
@@ -392,6 +445,14 @@ function buildCliConfig(
   if (v['report-by'] !== undefined) {
     result.reportBy = expectReportBy(v['report-by']);
   }
+  if (v.complexity !== undefined) {
+    result.complexityMetric = expectComplexity(v.complexity);
+  }
+  // --hotspots without --since defaults to a 90-day window. --since alone
+  // also implies hotspot mode (you only ask for a window if you want churn).
+  if (v.hotspots || v.since !== undefined) {
+    result.hotspotsSince = normaliseSince(v.since ?? '90d');
+  }
 
   return result;
 }
@@ -400,6 +461,13 @@ function expectReportBy(raw: string): 'function' | 'package' {
   if (raw === 'function' || raw === 'package') return raw;
   throw new Error(
     `--report-by expects one of: function | package (got "${raw}")`,
+  );
+}
+
+function expectComplexity(raw: string): 'cyclomatic' | 'cognitive' {
+  if (raw === 'cyclomatic' || raw === 'cognitive') return raw;
+  throw new Error(
+    `--complexity expects one of: cyclomatic | cognitive (got "${raw}")`,
   );
 }
 
@@ -418,12 +486,13 @@ function expectReporter(raw: string): ReporterName {
     raw === 'markdown' ||
     raw === 'github' ||
     raw === 'pr-comment' ||
-    raw === 'sarif'
+    raw === 'sarif' ||
+    raw === 'eslint'
   ) {
     return raw;
   }
   throw new Error(
-    `--reporter expects one of: table | json | markdown | github | pr-comment | sarif (got "${raw}")`,
+    `--reporter expects one of: table | json | markdown | github | pr-comment | sarif | eslint (got "${raw}")`,
   );
 }
 

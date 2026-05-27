@@ -1,10 +1,18 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import type {
+  ComplexityMetric,
   CoverageFormat,
   MissingPolicy,
   ReporterName,
 } from './core/types.js';
+
+/** A per-path threshold override. Last matching entry wins (ESLint-style). */
+export type ThresholdOverride = {
+  paths: string | string[];
+  threshold?: number;
+  failOn?: number | null;
+};
 
 export type ResolvedConfig = {
   paths: string[];
@@ -34,6 +42,11 @@ export type ResolvedConfig = {
   workspace: true | string | undefined;
   /** Group rows by `package` in the table / markdown reporters. */
   reportBy: 'function' | 'package';
+  complexityMetric: ComplexityMetric;
+  /** Git churn window for --hotspots (git-native string), or undefined. */
+  hotspotsSince: string | undefined;
+  /** Per-path threshold/failOn overrides, evaluated last-match-wins. */
+  overrides: ThresholdOverride[];
 };
 
 export type FileConfig = Partial<{
@@ -56,6 +69,9 @@ export type FileConfig = Partial<{
   epsilon: number;
   workspace: true | string;
   reportBy: 'function' | 'package';
+  complexity: ComplexityMetric;
+  hotspotsSince: string;
+  overrides: ThresholdOverride[];
 }>;
 
 export const DEFAULT_CONFIG: ResolvedConfig = {
@@ -78,6 +94,9 @@ export const DEFAULT_CONFIG: ResolvedConfig = {
   epsilon: 0.01,
   workspace: undefined,
   reportBy: 'function',
+  complexityMetric: 'cyclomatic',
+  hotspotsSince: undefined,
+  overrides: [],
 };
 
 export function loadFileConfig(cwd: string, explicit?: string): FileConfig {
@@ -150,6 +169,12 @@ export function mergeConfig(
     epsilon: cli.epsilon ?? file.epsilon ?? DEFAULT_CONFIG.epsilon,
     workspace: cli.workspace ?? file.workspace,
     reportBy: cli.reportBy ?? file.reportBy ?? DEFAULT_CONFIG.reportBy,
+    complexityMetric:
+      cli.complexityMetric ??
+      file.complexity ??
+      DEFAULT_CONFIG.complexityMetric,
+    hotspotsSince: cli.hotspotsSince ?? file.hotspotsSince,
+    overrides: cli.overrides ?? file.overrides ?? DEFAULT_CONFIG.overrides,
   };
 }
 

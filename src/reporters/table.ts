@@ -1,7 +1,7 @@
 import { relative } from 'node:path';
 import type { AnalyseResult, CrapFunction, DiffEntry } from '../core/types.js';
 import { deltaSign, makeDiffLookup } from './diffLookup.js';
-import type { ReporterContext } from './index.js';
+import { type ReporterContext, thresholdsFor } from './index.js';
 
 const BAR_WIDTH = 10;
 const FULL_BLOCK = '█';
@@ -14,12 +14,19 @@ export function renderTable(
   const cwd = process.cwd();
   const lines: string[] = [];
   const total = result.functions.length;
-  const crappy = result.functions.filter((f) => f.crap > ctx.threshold).length;
+  // "above threshold" honours per-path overrides — a function in legacy/**
+  // with a raised threshold isn't counted as crappy.
+  const crappy = result.functions.filter(
+    (f) => f.crap > thresholdsFor(ctx, f.file).threshold,
+  ).length;
   const crappyPct = total === 0 ? 0 : (crappy / total) * 100;
   const worst = result.functions[0];
+  const showHot = result.churnSince !== undefined;
 
   lines.push(
-    `Scanned ${result.filesScanned} files. ${total} functions analysed.`,
+    `Scanned ${result.filesScanned} files. ${total} functions analysed${
+      result.complexityMetric === 'cognitive' ? ' (cognitive complexity).' : '.'
+    }`,
   );
   if (result.coverageSource) {
     lines.push(
@@ -31,6 +38,11 @@ export function renderTable(
   lines.push(
     `Above threshold (CRAP > ${ctx.threshold}): ${crappy} (${crappyPct.toFixed(1)}%)`,
   );
+  if (showHot) {
+    lines.push(
+      `Hotspots: CRAP × commits since ${result.churnSince} (HOT column, sorted).`,
+    );
+  }
   if (ctx.diff && ctx.baselineSource) {
     const s = ctx.diff.summary;
     lines.push(
@@ -49,7 +61,11 @@ export function renderTable(
   }
   lines.push('');
 
-  const top = result.functions.slice(0, ctx.top);
+  // In hotspot mode the headline ranking is crap × churn, not crap alone.
+  const ranked = showHot
+    ? [...result.functions].sort((a, b) => (b.hotspot ?? 0) - (a.hotspot ?? 0))
+    : result.functions;
+  const top = ranked.slice(0, ctx.top);
   if (top.length === 0) {
     lines.push('No functions to display.');
     return lines.join('\n');
@@ -65,23 +81,21 @@ export function renderTable(
     return renderByPackage(lines, top, ctx, lookup, showDelta);
   }
 
-  const headers = showDelta
-    ? ['', 'CRAP', 'Δ', 'COMP', 'COVERAGE', 'LOCATION', 'FUNCTION']
-    : ['', 'CRAP', 'COMP', 'COVERAGE', 'LOCATION', 'FUNCTION'];
-
-  const rows = top.map((fn) => rowFor(fn, ctx, lookup?.(fn), showDelta, cwd));
+  const headers = buildHeaders(showDelta, showHot);
+  const rows = top.map((fn) =>
+    rowFor(fn, ctx, lookup?.(fn), showDelta, showHot, cwd),
+  );
 
   // Visible width — block characters render as one column in monospace fonts.
   const widths = headers.map((h, i) =>
     Math.max(visibleWidth(h), ...rows.map((r) => visibleWidth(r[i]!))),
   );
 
-  // CRAP, Δ and COMP columns right-aligned. Δ is at index 2 only when shown.
-  const ALIGN_RIGHT = showDelta ? new Set([1, 2, 3]) : new Set([1, 2]);
+  const rightAligned = rightAlignedCols(showDelta, showHot);
   const padCell = (cell: string, col: number) => {
     const gap = widths[col]! - visibleWidth(cell);
     if (gap <= 0) return cell;
-    return ALIGN_RIGHT.has(col)
+    return rightAligned.has(col)
       ? ' '.repeat(gap) + cell
       : cell + ' '.repeat(gap);
   };
@@ -93,6 +107,29 @@ export function renderTable(
   lines.push(formatRow(widths.map((w) => '─'.repeat(w))));
   for (const row of rows) lines.push(formatRow(row));
   return lines.join('\n');
+}
+
+// Column layout depends on which optional columns are active. HOT/CHURN sit
+// right after CRAP; Δ (baseline) when present sits after those.
+function buildHeaders(showDelta: boolean, showHot: boolean): string[] {
+  const cols = ['', 'CRAP'];
+  if (showHot) cols.push('HOT', 'CHURN');
+  if (showDelta) cols.push('Δ');
+  cols.push('COMP', 'COVERAGE', 'LOCATION', 'FUNCTION');
+  return cols;
+}
+
+function rightAlignedCols(showDelta: boolean, showHot: boolean): Set<number> {
+  // Numeric columns are right-aligned. Walk the same order buildHeaders uses.
+  const right = new Set<number>([1]); // CRAP
+  let i = 2;
+  if (showHot) {
+    right.add(i++); // HOT
+    right.add(i++); // CHURN
+  }
+  if (showDelta) right.add(i++); // Δ
+  right.add(i); // COMP
+  return right;
 }
 
 /**
@@ -123,23 +160,21 @@ function renderByPackage(
     return sumB - sumA;
   });
 
-  const headers = showDelta
-    ? ['', 'CRAP', 'Δ', 'COMP', 'COVERAGE', 'LOCATION', 'FUNCTION']
-    : ['', 'CRAP', 'COMP', 'COVERAGE', 'LOCATION', 'FUNCTION'];
+  const headers = buildHeaders(showDelta, false);
 
   const allRows = top.map((fn) =>
-    rowFor(fn, ctx, lookup?.(fn), showDelta, cwd),
+    rowFor(fn, ctx, lookup?.(fn), showDelta, false, cwd),
   );
   const widths = headers.map((h, i) =>
     Math.max(visibleWidth(h), ...allRows.map((r) => visibleWidth(r[i]!))),
   );
-  const ALIGN_RIGHT = showDelta ? new Set([1, 2, 3]) : new Set([1, 2]);
+  const rightAligned = rightAlignedCols(showDelta, false);
   const formatRow = (cells: string[]) =>
     cells
       .map((cell, i) => {
         const gap = widths[i]! - visibleWidth(cell);
         if (gap <= 0) return cell;
-        return ALIGN_RIGHT.has(i)
+        return rightAligned.has(i)
           ? ' '.repeat(gap) + cell
           : cell + ' '.repeat(gap);
       })
@@ -152,7 +187,9 @@ function renderByPackage(
     lines.push(formatRow(headers));
     lines.push(formatRow(widths.map((w) => '─'.repeat(w))));
     for (const fn of fns) {
-      lines.push(formatRow(rowFor(fn, ctx, lookup?.(fn), showDelta, cwd)));
+      lines.push(
+        formatRow(rowFor(fn, ctx, lookup?.(fn), showDelta, false, cwd)),
+      );
     }
   }
   return lines.join('\n');
@@ -163,20 +200,25 @@ function rowFor(
   ctx: ReporterContext,
   entry: DiffEntry | undefined,
   showDelta: boolean,
+  showHot: boolean,
   cwd: string,
 ): string[] {
-  const base = [
-    statusIcon(fn.crap, ctx.threshold, ctx.failOn, entry),
+  const { threshold, failOn } = thresholdsFor(ctx, fn.file);
+  const cells = [
+    statusIcon(fn.crap, threshold, failOn, entry),
     fn.crap.toFixed(1),
   ];
-  const tail = [
+  if (showHot) {
+    cells.push((fn.hotspot ?? 0).toFixed(0), String(fn.churn ?? 0));
+  }
+  if (showDelta) cells.push(deltaCell(entry));
+  cells.push(
     String(fn.complexity),
     coverageCell(fn.coverage, fn.coverageMissing),
     `${relative(cwd, fn.file)}:${fn.startLine}`,
     fn.name,
-  ];
-  if (showDelta) return [...base, deltaCell(entry), ...tail];
-  return [...base, ...tail];
+  );
+  return cells;
 }
 
 function statusIcon(

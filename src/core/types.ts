@@ -6,9 +6,12 @@ export type ReporterName =
   | 'markdown'
   | 'github'
   | 'pr-comment'
-  | 'sarif';
+  | 'sarif'
+  | 'eslint';
 
 export type MissingPolicy = 'pessimistic' | 'optimistic' | 'skip';
+
+export type ComplexityMetric = 'cyclomatic' | 'cognitive';
 
 export type CrapFunction = {
   file: string;
@@ -35,6 +38,16 @@ export type CrapFunction = {
    * --workspace was active during the scan; absent in single-package repos.
    */
   package?: string;
+  /**
+   * Number of commits touching this function's file within the --since
+   * window. Present only in --hotspots mode.
+   */
+  churn?: number;
+  /**
+   * crap × churn — the "risky AND frequently-changed" score. Present only in
+   * --hotspots mode. This is the quadrant where bugs cluster.
+   */
+  hotspot?: number;
 };
 
 export type AnalyseOptions = {
@@ -46,11 +59,23 @@ export type AnalyseOptions = {
   /** How to treat functions with no coverage data. Default: 'pessimistic'. */
   missing?: MissingPolicy;
   /**
+   * Which complexity metric feeds the CRAP formula. 'cyclomatic' (default) is
+   * canonical; 'cognitive' is a crap4ts extension that weights nesting.
+   */
+  complexityMetric?: ComplexityMetric;
+  /**
    * When set, every function's enclosing workspace package is recorded on
    * the CrapFunction. The CLI populates this via --workspace; library users
    * can pass it directly.
    */
   workspacePackages?: Array<{ name: string; path: string }>;
+  /**
+   * Git churn window. When set, each function gets a `churn` (commit count
+   * touching its file since this date) and a `hotspot` (crap × churn). The
+   * CLI populates this from --since; pass a value git understands
+   * (e.g. "90 days ago", "2026-01-01").
+   */
+  churnSince?: string;
 };
 
 export type AnalyseResult = {
@@ -58,6 +83,10 @@ export type AnalyseResult = {
   filesScanned: number;
   coverageSource?: string;
   coverageFormat?: CoverageFormat;
+  /** Which complexity metric produced the scores. */
+  complexityMetric: ComplexityMetric;
+  /** Echoes the churn window when --hotspots was active. */
+  churnSince?: string;
 };
 
 /**
