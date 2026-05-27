@@ -40,6 +40,12 @@ Each of these PRs adds a self-contained fixture under `examples/monorepos/` and 
 | [#10 Demo - Monorepo (package.json#workspaces)](https://github.com/danibram/crap4ts/pull/10) | `package.json#workspaces` (bun / yarn / npm) | `examples/monorepos/npm/` |
 | [#11 Demo - Monorepo (Turbo)](https://github.com/danibram/crap4ts/pull/11) | `turbo.json` + `pnpm-workspace.yaml` | `examples/monorepos/turbo/` |
 
+### v0.6 features
+
+| PR | What it shows | Fixture |
+|----|---------------|---------|
+| [#14 Demo - v0.6 features](https://github.com/danibram/crap4ts/pull/14) | Cognitive complexity, in-source disable comments, per-path overrides, hotspots | `examples/v06/` |
+
 ## 30-second setup
 
 ```bash
