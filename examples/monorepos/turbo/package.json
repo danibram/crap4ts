@@ -1,0 +1,5 @@
+{
+  "name": "turbo-demo",
+  "private": true,
+  "devDependencies": { "turbo": "^2.0.0" }
+}
